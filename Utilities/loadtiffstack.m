@@ -6,7 +6,8 @@ function [ arrayOut ] = loadtiffstack( address, loadSmall)
 % loadSmall - flag, if set will arrayOut will be in uint8 format, 
               %otherwise, will be double
                    
-
+    currentDirectory = pwd;          
+              
     % Find which files to load.
     cd(address); dirtoryContents = dir; includedFiles = [];
     
@@ -65,6 +66,8 @@ function [ arrayOut ] = loadtiffstack( address, loadSmall)
         counter = counter + 1;
     
     end
+    
+    cd(currentDirectory)
     
 end
 
