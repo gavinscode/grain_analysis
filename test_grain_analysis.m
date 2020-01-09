@@ -7,6 +7,8 @@ targetDirectory = '/Users/gavintaylor/Documents/Company/Client Projects/Grain LU
 % Loading tiff stack takes a while.
 grainVolume = loadtiffstack(targetDirectory, 1);
 
+grainVolume = grainVolume(:,:,1:1500);
+
 volumeSize = size(grainVolume);
 
 aleuroneIndex = 1; % Material index.
@@ -15,12 +17,13 @@ aleuroneIndex = 1; % Material index.
 
 %% Take mesh around entire grain then limit to aleurone exterior.
 
-% Reduce patch size to save mesh construction time.
+% Reduce patch size to save mesh construction time - keep as large as possible.
 % If this value is below ~0.05, holes may appear in mesh if grain touches volume border.
-resizeRatio = 0.5;
+resizeRatio = 0.2;
 
 % Do a strong morphological open to seperate along crease and remove floaters.
-smallGrainVolume = imopen(grainVolume, strel('disk', 3));
+%smallGrainVolume = imopen(grainVolume, strel('disk', 5));
+smallGrainVolume = grainVolume;
 
 % Volume should not be binarized before this point.
 smallGrainVolume = imresize3(uint8(smallGrainVolume), resizeRatio);
@@ -30,17 +33,26 @@ smallGrainVolume = imresize3(uint8(smallGrainVolume), resizeRatio);
 % Create isosurface on downsampled volume.
 fullGrainSurface = isosurface(smallGrainVolume, 0.5);
 
+%voxelizedFullGrainSurface = inpolyhedron(fullGrainSurface, 1:voxelSize(1), ... 
+%   1:voxelSize(2), 1:voxelSize(3));
+
 % Simplify patch to speed processing time later. 
-% This and resize ratio both need tuning to result in resonable number of edges.
-patchReductionRatio = 0.01;
+% This and resize ratio both need tuning to result in < 5000 vertices.
+patchReductionRatio = 0.02;
 
 fullGrainSurface = reducepatch(fullGrainSurface,patchReductionRatio);
+
+length(fullGrainSurface.vertices)
 
 % Englarge surface back to original size.
 fullGrainSurface.vertices = round(fullGrainSurface.vertices/resizeRatio);
 
 % Note that surface vertices are flipped relative to image subscripts.
 fullGrainSurface.vertices(:,[1 2]) = fullGrainSurface.vertices(:,[2 1]);
+
+% Was testing mesh voxilization for debugging
+%voxelizedSmallGrainSurface = inpolyhedron(fullGrainSurface, 1:volumeSize(1), ... 
+%   1:volumeSize(2), 1:volumeSize(3));
 
 % Truncate to lower bound of volume.
 fullGrainSurface.vertices(fullGrainSurface.vertices < 1) = 1;
@@ -278,11 +290,11 @@ iToPlot = find(aleuroneSurfaceRotated.vertices(:,2) < 75);
 
 %patch(aleuroneSurfaceRotated); 
 
-%plot3(aleuroneSurfaceRotated.vertices(iToPlot,1), aleuroneSurfaceRotated.vertices(iToPlot,2), ...
-%    aleuroneSurfaceRotated.vertices(iToPlot,3), 'r.');
+plot3(aleuroneSurfaceRotated.vertices(iToPlot,1), aleuroneSurfaceRotated.vertices(iToPlot,2), ...
+   aleuroneSurfaceRotated.vertices(iToPlot,3), 'r.');
 
 %split into two clusters
-idx = kmeans(aleuroneSurfaceRotated.vertices(iToPlot,[1]),2);
+idx = kmeans(aleuroneSurfaceRotated.vertices(iToPlot,[1 2]),2);
 
 cluster1index = find(idx == 1);
 
