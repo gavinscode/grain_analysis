@@ -7,93 +7,100 @@ targetDirectory = '/Users/gavintaylor/Documents/Company/Client Projects/Grain LU
 % Loading tiff stack takes a while.
 grainVolume = loadtiffstack(targetDirectory, 1);
 
-grainVolume = grainVolume(:,:,1:1500);
+%grainVolume = grainVolume(:,1:500,:);
 
 volumeSize = size(grainVolume);
 
-aleuroneIndex = 1; % Material index.
+% Create stucturing elements for sepecific connections
+STREL_6_CONNECTED = strel('sphere', 1); 
+temp = STREL_6_CONNECTED.Neighborhood; 
+temp(:,:,2) = 1; temp([1 3],2,:) = 1; temp(2,[1 3],:) = 1;
+STREL_18_CONNECTED = strel('arbitrary', temp); 
+STREL_26_CONNECTED = strel('cube', 3); 
 
+% Called imopen in parts as error in Mex file.
+newVolume = imdilate( imerode(grainVolume, STREL_6_CONNECTED), STREL_6_CONNECTED);
 
+ALEURONE_INDEX = 1; % Material index.
 
 %% Take mesh around entire grain then limit to aleurone exterior.
 
 % Reduce patch size to save mesh construction time - keep as large as possible.
 % If this value is below ~0.05, holes may appear in mesh if grain touches volume border.
-resizeRatio = 0.2;
-
-% Do a strong morphological open to seperate along crease and remove floaters.
-%smallGrainVolume = imopen(grainVolume, strel('disk', 5));
-smallGrainVolume = grainVolume;
-
-% Volume should not be binarized before this point.
-smallGrainVolume = imresize3(uint8(smallGrainVolume), resizeRatio);
-
-%%% Should test for presence of multiple objects/floaters here.
-
-% Create isosurface on downsampled volume.
-fullGrainSurface = isosurface(smallGrainVolume, 0.5);
-
-%voxelizedFullGrainSurface = inpolyhedron(fullGrainSurface, 1:voxelSize(1), ... 
-%   1:voxelSize(2), 1:voxelSize(3));
-
-% Simplify patch to speed processing time later. 
-% This and resize ratio both need tuning to result in < 5000 vertices.
-patchReductionRatio = 0.02;
-
-fullGrainSurface = reducepatch(fullGrainSurface,patchReductionRatio);
-
-length(fullGrainSurface.vertices)
-
-% Englarge surface back to original size.
-fullGrainSurface.vertices = round(fullGrainSurface.vertices/resizeRatio);
-
-% Note that surface vertices are flipped relative to image subscripts.
-fullGrainSurface.vertices(:,[1 2]) = fullGrainSurface.vertices(:,[2 1]);
-
-% Was testing mesh voxilization for debugging
-%voxelizedSmallGrainSurface = inpolyhedron(fullGrainSurface, 1:volumeSize(1), ... 
-%   1:volumeSize(2), 1:volumeSize(3));
-
-% Truncate to lower bound of volume.
-fullGrainSurface.vertices(fullGrainSurface.vertices < 1) = 1;
-        
-% Truncate to upper bound.
-fullGrainSurface.vertices(fullGrainSurface.vertices(:,1) > volumeSize(1),1) = volumeSize(1);
-
-fullGrainSurface.vertices(fullGrainSurface.vertices(:,2) > volumeSize(2),2) = volumeSize(2);
-
-fullGrainSurface.vertices(fullGrainSurface.vertices(:,3) > volumeSize(3),3) = volumeSize(3);
-
-nVertex = size(fullGrainSurface.vertices,1);
-
-nFace = size(fullGrainSurface.faces,1);
-
-% Get long axis of grain with PCA.
-grainAxisArray = pca(fullGrainSurface.vertices);
-
-grainLongAxis = grainAxisArray(:,1)';
-
-grainCreaseAxis = grainAxisArray(:,3)';
-
-grainCenter = mean(fullGrainSurface.vertices);
-
-% Plost test figures;
-figure; axis equal; hold on; axis off; set(gca, 'Clipping', 'off')
-
-patch(fullGrainSurface);
-
-plot3(fullGrainSurface.vertices(:,1), fullGrainSurface.vertices(:,2), fullGrainSurface.vertices(:,3), 'ro')
-
-line(grainCenter(1)+[0 2000]*grainLongAxis(1), grainCenter(2)+[0 2000]*grainLongAxis(2), ...
-    grainCenter(3)+[0 2000]*grainLongAxis(3), 'color' ,'b')
-
-line(grainCenter(1)+[0 1000]*grainAxisArray(1,2), grainCenter(2)+[0 1000]*grainAxisArray(2,2), ...
-    grainCenter(3)+[0 1000]*grainAxisArray(3,2), 'color' ,'g')
-
-line(grainCenter(1)+[0 1000]*grainCreaseAxis(1), grainCenter(2)+[0 1000]*grainCreaseAxis(2), ...
-    grainCenter(3)+[0 1000]*grainCreaseAxis(3), 'color' ,'r')
-
-title('Check there are no holes in the surface')
+% resizeRatio = 0.2;
+% 
+% % Do a strong morphological open to seperate along crease and remove floaters.
+% smallGrainVolume = grainVolume;
+% 
+% % Volume should not be binarized before this point.
+% smallGrainVolume = imresize3(uint8(smallGrainVolume), resizeRatio);
+% 
+% %%% Should test for presence of multiple objects/floaters here.
+% 
+% % Create isosurface on downsampled volume.
+% fullGrainSurface = isosurface(smallGrainVolume, 0.5);
+% 
+% %voxelizedFullGrainSurface = inpolyhedron(fullGrainSurface, 1:voxelSize(1), ... 
+% %   1:voxelSize(2), 1:voxelSize(3));
+% 
+% % Simplify patch to speed processing time later. 
+% % This and resize ratio both need tuning to result in < 5000 vertices.
+% patchReductionRatio = 0.02;
+% 
+% fullGrainSurface = reducepatch(fullGrainSurface,patchReductionRatio);
+% 
+% length(fullGrainSurface.vertices)
+% 
+% % Englarge surface back to original size.
+% fullGrainSurface.vertices = round(fullGrainSurface.vertices/resizeRatio);
+% 
+% % Note that surface vertices are flipped relative to image subscripts.
+% fullGrainSurface.vertices(:,[1 2]) = fullGrainSurface.vertices(:,[2 1]);
+% 
+% % Was testing mesh voxilization for debugging
+% %voxelizedSmallGrainSurface = inpolyhedron(fullGrainSurface, 1:volumeSize(1), ... 
+% %   1:volumeSize(2), 1:volumeSize(3));
+% 
+% % Truncate to lower bound of volume.
+% fullGrainSurface.vertices(fullGrainSurface.vertices < 1) = 1;
+%         
+% % Truncate to upper bound.
+% fullGrainSurface.vertices(fullGrainSurface.vertices(:,1) > volumeSize(1),1) = volumeSize(1);
+% 
+% fullGrainSurface.vertices(fullGrainSurface.vertices(:,2) > volumeSize(2),2) = volumeSize(2);
+% 
+% fullGrainSurface.vertices(fullGrainSurface.vertices(:,3) > volumeSize(3),3) = volumeSize(3);
+% 
+% nVertex = size(fullGrainSurface.vertices,1);
+% 
+% nFace = size(fullGrainSurface.faces,1);
+% 
+% % Get long axis of grain with PCA.
+% grainAxisArray = pca(fullGrainSurface.vertices);
+% 
+% grainLongAxis = grainAxisArray(:,1)';
+% 
+% grainCreaseAxis = grainAxisArray(:,3)';
+% 
+% grainCenter = mean(fullGrainSurface.vertices);
+% 
+% % Plost test figures;
+% figure; axis equal; hold on; axis off; set(gca, 'Clipping', 'off')
+% 
+% patch(fullGrainSurface);
+% 
+% plot3(fullGrainSurface.vertices(:,1), fullGrainSurface.vertices(:,2), fullGrainSurface.vertices(:,3), 'ro')
+% 
+% line(grainCenter(1)+[0 2000]*grainLongAxis(1), grainCenter(2)+[0 2000]*grainLongAxis(2), ...
+%     grainCenter(3)+[0 2000]*grainLongAxis(3), 'color' ,'b')
+% 
+% line(grainCenter(1)+[0 1000]*grainAxisArray(1,2), grainCenter(2)+[0 1000]*grainAxisArray(2,2), ...
+%     grainCenter(3)+[0 1000]*grainAxisArray(3,2), 'color' ,'g')
+% 
+% line(grainCenter(1)+[0 1000]*grainCreaseAxis(1), grainCenter(2)+[0 1000]*grainCreaseAxis(2), ...
+%     grainCenter(3)+[0 1000]*grainCreaseAxis(3), 'color' ,'r')
+% 
+% title('Check there are no holes in the surface')
 
 
 
@@ -101,21 +108,59 @@ title('Check there are no holes in the surface')
 %%% ADD FUNCTION for this and replace in loop.
 grainExterior = ~grainVolume;
 
-grainExterior = imdilate(grainExterior, strel('disk', 1));
+% Exterior is outer volume, and grown into other volume.
+grainExterior = imdilate(grainExterior, STREL_18_CONNECTED);
 
 grainExterior = grainExterior & grainVolume;
 
 % Get surface indices, then convert to subscripts.
-voxelIndexList = find(grainExterior);
+surfaceIndexList = find(grainExterior);
 
-nIndex = length(voxelIndexList);
+nIndex = length(surfaceIndexList);
 
 grainSurfaceSubscriptArray = zeros(nIndex, 3);
 
 [grainSurfaceSubscriptArray(:,1), grainSurfaceSubscriptArray(:,2), grainSurfaceSubscriptArray(:,3)] = ...
-    ind2sub(volumeSize, voxelIndexList);
+    ind2sub(volumeSize, surfaceIndexList);
 
+% Get aleurone surface subscripts.
+aleuroneSurfaceIndexList = find(grainExterior & grainVolume == ALEURONE_INDEX);
 
+nIndex = length(aleuroneSurfaceIndexList);
+
+aleuroneSurfaceSubscriptArray = zeros(nIndex, 3);
+
+[aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), aleuroneSurfaceSubscriptArray(:,3)] = ...
+    ind2sub(volumeSize, aleuroneSurfaceIndexList);
+
+% Now get aleurone surface edge subscripts.
+aleuroneSurfaceEdge = grainExterior; 
+
+% Take border outside of aleurone, grow in and then remove.
+aleuroneSurfaceEdge(aleuroneSurfaceIndexList) = 0; 
+
+aleuroneSurfaceEdge = imdilate(aleuroneSurfaceEdge, STREL_18_CONNECTED);
+
+aleuroneSurfaceEdge = aleuroneSurfaceEdge & grainExterior;
+
+aleuroneSurfaceEdge(grainVolume ~= ALEURONE_INDEX) = 0;
+
+aleuroneSurfaceEdgeIndexList = find(aleuroneSurfaceEdge);
+
+nIndex = length(aleuroneSurfaceEdgeIndexList);
+
+aleuroneSurfaceEdgeSubscriptArray = zeros(nIndex, 3);
+
+[aleuroneSurfaceEdgeSubscriptArray(:,1), aleuroneSurfaceEdgeSubscriptArray(:,2), aleuroneSurfaceEdgeSubscriptArray(:,3)] = ...
+    ind2sub(volumeSize, aleuroneSurfaceEdgeIndexList);
+
+figure; hold on; axis equal; set(gca, 'Clipping', 'off')
+
+%plot3(grainSurfaceSubscriptArray(:,1), grainSurfaceSubscriptArray(:,2), grainSurfaceSubscriptArray(:,3), 'b.')
+
+plot3(aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), aleuroneSurfaceSubscriptArray(:,3), 'g.')
+
+plot3(aleuroneSurfaceEdgeSubscriptArray(:,1), aleuroneSurfaceEdgeSubscriptArray(:,2), aleuroneSurfaceEdgeSubscriptArray(:,3), 'rx')
 
 %% Snap each surface vertices onto the surface voxels and test if aleurone.
 aleuroneSurface = fullGrainSurface;
@@ -211,7 +256,7 @@ for iVertex = 1:nVertex
     % Test if vertex is part of aleurone and mark to remove if not.
     voxelMaterialIndex = grainVolume(surfaceVertex(1), surfaceVertex(2), surfaceVertex(3));
     
-    if aleuroneIndex ~= voxelMaterialIndex
+    if ALEURONE_INDEX ~= voxelMaterialIndex
         vertexToRemove(iVertex) = 1;
         
         % Also mark faces to remove.
@@ -253,6 +298,8 @@ aleuroneAxisArray = pca(aleuroneSurface.vertices);
 
 aleuroneCreaseAxis = aleuroneAxisArray(:,3)';
 
+
+
 %% Plot test figures.
 transform2Vertical = matrix2rotatevectors([0, 0, 1], grainLongAxis);
 
@@ -265,24 +312,6 @@ aleuroneSurfaceRotated.vertices = aleuroneSurfaceRotated.vertices*transform2Vert
 transform2Up = matrix2rotatevectors([0, 1, 0], aleuroneCreaseAxis*transform2Vertical);
 
 aleuroneSurfaceRotated.vertices = aleuroneSurfaceRotated.vertices*transform2Up;
-
-% Do for Aleurone surface.
-% voxelIndexList = find(grainExterior & grainVolume == 1);
-% 
-% nIndex = length(voxelIndexList);
-% 
-% aleuroneSurfaceSubscriptArray = zeros(nIndex, 3);
-% 
-% [aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), aleuroneSurfaceSubscriptArray(:,3)] = ...
-%     ind2sub(volumeSize, voxelIndexList);
-% 
-% aleuroneSurfaceSubscriptArray = aleuroneSurfaceSubscriptArray - grainCenter;
-% 
-% aleuroneSurfaceSubscriptArray = aleuroneSurfaceSubscriptArray*transform2Vertical;
-% 
-% aleuroneSurfaceSubscriptArray = aleuroneSurfaceSubscriptArray*transform2Up;
-
-
 
 figure; axis equal; hold on; set(gca, 'Clipping', 'off')
 
@@ -310,6 +339,7 @@ plot3(aleuroneSurfaceRotated.vertices(iToPlot(cluster2index),1), aleuroneSurface
 figure; hist(aleuroneSurfaceRotated.vertices(iToPlot,1),200)
 
 figure; plot(aleuroneSurfaceRotated.vertices(iToPlot,1), aleuroneSurfaceRotated.vertices(iToPlot,2), '.')
+
 
 
 %% Test geodesic embedding for unwrapping.
