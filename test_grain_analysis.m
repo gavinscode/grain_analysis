@@ -19,7 +19,9 @@ STREL_18_CONNECTED = strel('arbitrary', temp);
 STREL_26_CONNECTED = strel('cube', 3); 
 
 % Called imopen in parts as error in Mex file.
-newVolume = imdilate( imerode(grainVolume, STREL_6_CONNECTED), STREL_6_CONNECTED);
+s = settings; s.images.UseHalide.TemporaryValue = false;
+grainVolume = imopen(grainVolume, STREL_6_CONNECTED);
+s = settings; s.images.UseHalide.TemporaryValue = true;
 
 ALEURONE_INDEX = 1; % Material index.
 
@@ -113,6 +115,30 @@ grainExterior = imdilate(grainExterior, STREL_18_CONNECTED);
 
 grainExterior = grainExterior & grainVolume;
 
+% Take largest connected region.
+tempCC = bwconncomp(grainExterior, 18);
+
+tempStats = regionprops(tempCC, 'PixelIdxList');
+
+% Get number of voxels in each region. 
+nRegions = length(tempStats);
+
+voxelsPerRegionArray = zeros(nRegions,1);
+
+for iRegion = 1:nRegions
+    voxelsPerRegionArray(iRegion) = length(tempStats(iRegion).PixelIdxList);
+end
+
+% Largest will generally be much larger than others.
+[~, tempIndex] = max(voxelsPerRegionArray);
+
+tempStats(tempIndex) = [];
+
+% Remove other regions from volume.
+for iRegion = 1:nRegions-1
+    grainExterior(tempStats(iRegion).PixelIdxList) = 0;
+end
+
 % Get surface indices, then convert to subscripts.
 surfaceIndexList = find(grainExterior);
 
@@ -120,8 +146,18 @@ nIndex = length(surfaceIndexList);
 
 grainSurfaceSubscriptArray = zeros(nIndex, 3);
 
+% X and Y should not need to be flipped to match image?
 [grainSurfaceSubscriptArray(:,1), grainSurfaceSubscriptArray(:,2), grainSurfaceSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, surfaceIndexList);
+
+% Get long axis of grain with PCA.
+grainAxisArray = pca(grainSurfaceSubscriptArray);
+
+grainLongAxis = grainAxisArray(:,1)';
+
+grainCreaseAxis = grainAxisArray(:,3)';
+
+grainCenter = mean(grainSurfaceSubscriptArray);
 
 % Get aleurone surface subscripts.
 aleuroneSurfaceIndexList = find(grainExterior & grainVolume == ALEURONE_INDEX);
@@ -133,34 +169,64 @@ aleuroneSurfaceSubscriptArray = zeros(nIndex, 3);
 [aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), aleuroneSurfaceSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, aleuroneSurfaceIndexList);
 
+
+
 % Now get aleurone surface edge subscripts.
-aleuroneSurfaceEdge = grainExterior; 
+% aleuroneSurfaceEdge = grainExterior; 
+% 
+% % Take border outside of aleurone, grow in and then remove.
+% aleuroneSurfaceEdge(aleuroneSurfaceIndexList) = 0; 
+% 
+% aleuroneSurfaceEdge = imdilate(aleuroneSurfaceEdge, STREL_18_CONNECTED);
+% 
+% aleuroneSurfaceEdge = aleuroneSurfaceEdge & grainExterior;
+% 
+% aleuroneSurfaceEdge(grainVolume ~= ALEURONE_INDEX) = 0;
+% 
+% aleuroneSurfaceEdgeIndexList = find(aleuroneSurfaceEdge);
+% 
+% nIndex = length(aleuroneSurfaceEdgeIndexList);
+% 
+% aleuroneSurfaceEdgeSubscriptArray = zeros(nIndex, 3);
+% 
+% [aleuroneSurfaceEdgeSubscriptArray(:,1), aleuroneSurfaceEdgeSubscriptArray(:,2), aleuroneSurfaceEdgeSubscriptArray(:,3)] = ...
+%     ind2sub(volumeSize, aleuroneSurfaceEdgeIndexList);
 
-% Take border outside of aleurone, grow in and then remove.
-aleuroneSurfaceEdge(aleuroneSurfaceIndexList) = 0; 
+% Rotate grain exterior voxels.
+transform2Vertical = matrix2rotatevectors([0, 0, 1], grainLongAxis);
 
-aleuroneSurfaceEdge = imdilate(aleuroneSurfaceEdge, STREL_18_CONNECTED);
+transform2Up = matrix2rotatevectors([0, 1, 0], grainCreaseAxis*transform2Vertical);
 
-aleuroneSurfaceEdge = aleuroneSurfaceEdge & grainExterior;
+grainSurfaceSubscriptArray = grainSurfaceSubscriptArray - grainCenter;
 
-aleuroneSurfaceEdge(grainVolume ~= ALEURONE_INDEX) = 0;
+grainSurfaceSubscriptArray = (grainSurfaceSubscriptArray*transform2Vertical)*transform2Up;
 
-aleuroneSurfaceEdgeIndexList = find(aleuroneSurfaceEdge);
+aleuroneSurfaceSubscriptArray = aleuroneSurfaceSubscriptArray - grainCenter;
 
-nIndex = length(aleuroneSurfaceEdgeIndexList);
+aleuroneSurfaceSubscriptArray = (aleuroneSurfaceSubscriptArray*transform2Vertical)*transform2Up;
 
-aleuroneSurfaceEdgeSubscriptArray = zeros(nIndex, 3);
+% Note: May be possible to speed up transform as done for slice reg. (Add nearest neighbour interp to C file)
+% Need to build rotation matrix from above
+% Subtract difference of grain center to volume center, 
+% Rotate 1, rotate 2
+% Shift back to original position. Multiply left to right.
+temp = zeros(4,4); temp(4,4) = 1;
+M1 = make_transformation_matrix(grainCenter - volumeSize/2);
+M2 = temp; M2(1:3,1:3) = transform2Vertical;
+M3 = temp; M3(1:3,1:3) = transform2Up;
+M4 = make_transformation_matrix(volumeSize/2 - grainCenter);
 
-[aleuroneSurfaceEdgeSubscriptArray(:,1), aleuroneSurfaceEdgeSubscriptArray(:,2), aleuroneSurfaceEdgeSubscriptArray(:,3)] = ...
-    ind2sub(volumeSize, aleuroneSurfaceEdgeIndexList);
+grainVolume = affine_transform(grainVolume, M1*M2*M3*M4, 5);
+
+%%% Overlay surfaces produced by each to check alignment is correct!
 
 figure; hold on; axis equal; set(gca, 'Clipping', 'off')
 
-%plot3(grainSurfaceSubscriptArray(:,1), grainSurfaceSubscriptArray(:,2), grainSurfaceSubscriptArray(:,3), 'b.')
+plot3(grainSurfaceSubscriptArray(:,1), grainSurfaceSubscriptArray(:,2), grainSurfaceSubscriptArray(:,3), 'b.')
 
 plot3(aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), aleuroneSurfaceSubscriptArray(:,3), 'g.')
 
-plot3(aleuroneSurfaceEdgeSubscriptArray(:,1), aleuroneSurfaceEdgeSubscriptArray(:,2), aleuroneSurfaceEdgeSubscriptArray(:,3), 'rx')
+%plot3(aleuroneSurfaceEdgeSubscriptArray(:,1), aleuroneSurfaceEdgeSubscriptArray(:,2), aleuroneSurfaceEdgeSubscriptArray(:,3), 'rx')
 
 %% Snap each surface vertices onto the surface voxels and test if aleurone.
 aleuroneSurface = fullGrainSurface;
@@ -301,18 +367,6 @@ aleuroneCreaseAxis = aleuroneAxisArray(:,3)';
 
 
 %% Plot test figures.
-transform2Vertical = matrix2rotatevectors([0, 0, 1], grainLongAxis);
-
-aleuroneSurfaceRotated = aleuroneSurface;
-
-aleuroneSurfaceRotated.vertices = aleuroneSurfaceRotated.vertices - grainCenter;
-
-aleuroneSurfaceRotated.vertices = aleuroneSurfaceRotated.vertices*transform2Vertical;
-
-transform2Up = matrix2rotatevectors([0, 1, 0], aleuroneCreaseAxis*transform2Vertical);
-
-aleuroneSurfaceRotated.vertices = aleuroneSurfaceRotated.vertices*transform2Up;
-
 figure; axis equal; hold on; set(gca, 'Clipping', 'off')
 
 iToPlot = find(aleuroneSurfaceRotated.vertices(:,2) < 75);
