@@ -24,7 +24,8 @@ grainVolume = imopen(grainVolume, STREL_6_CONNECTED);
 s = settings; s.images.UseHalide.TemporaryValue = true;
 
 ALEURONE_INDEX = 1; % Material index.
-
+ENDOSPERM_INDEX = 2;
+GERM_INDEX = 3;
 %% Take mesh around entire grain then limit to aleurone exterior.
 
 % Reduce patch size to save mesh construction time - keep as large as possible.
@@ -195,13 +196,11 @@ transform2Vertical = matrix2rotatevectors([0, 0, 1], grainLongAxis);
 
 transform2Up = matrix2rotatevectors([0, 1, 0], grainCreaseAxis*transform2Vertical);
 
-grainSurfaceSubscriptArray = grainSurfaceSubscriptArray - grainCenter;
+grainSurfaceSubscriptArray = ((grainSurfaceSubscriptArray- grainCenter)*...
+    transform2Vertical)*transform2Up + grainCenter;
 
-grainSurfaceSubscriptArray = (grainSurfaceSubscriptArray*transform2Vertical)*transform2Up;
-
-aleuroneSurfaceSubscriptArray = aleuroneSurfaceSubscriptArray - grainCenter;
-
-aleuroneSurfaceSubscriptArray = (aleuroneSurfaceSubscriptArray*transform2Vertical)*transform2Up;
+aleuroneSurfaceSubscriptArray = ((aleuroneSurfaceSubscriptArray - grainCenter)*...
+    transform2Vertical)*transform2Up + grainCenter;
 
 % Apply transformation to grain in volume.
 % Note: May be possible to speed up transform as done for slice reg. (Add nearest neighbour interp to C file)
@@ -215,10 +214,9 @@ M3 = temp; M3(1:3,1:3) = transform2Up;
 
 M4 = make_transformation_matrix(volumeSize/2 - grainCenter);
 
-grainVolumeAligned = affine_transform_full(grainVolume, M1*M2*M3*M4, 5);
+grainVolumeAligned = uint8(affine_transform_full(single(grainVolume), M1*M2*M3*M4, 5));
 
 % Imshow
-
 
 figure; hold on; axis equal; set(gca, 'Clipping', 'off')
 
@@ -230,7 +228,57 @@ plot3(grainSurfaceSubscriptArray(:,1)+grainCenter(1), grainSurfaceSubscriptArray
 %plot3(aleuroneSurfaceEdgeSubscriptArray(:,1), aleuroneSurfaceEdgeSubscriptArray(:,2), aleuroneSurfaceEdgeSubscriptArray(:,3), 'rx')
 
 %% Fill beneath crease on each z-slices to get shaped.
+% Get range to check.
+zRange = [ceil( min(aleuroneSurfaceSubscriptArray(:,3))) floor( max(aleuroneSurfaceSubscriptArray(:,3)))];
 
+% Get aleurone distribution by slices.
+aleuroneVoxelsBySlice = zeros(volumeSize(3),1);
+for iSlice = zRange(1):zRange(2)
+    
+    aleuroneVoxelsBySlice(iSlice) = sum( sum(grainVolumeAligned(:,:,iSlice) == ALEURONE_INDEX));
+    
+end
+
+figure; plot(aleuroneVoxelsBySlice)
+
+% Set zRange for testing.
+zRange = [500 2000]; %30 2110
+
+creaseProfileBySlice = zeros(volumeSize(3),volumeSize(1));
+
+for iSlice = zRange(1):zRange(2)
+    %figure; imshow(grainVolumeAligned(:,:,iSlice)*100)
+    
+    tempImage = zeros(volumeSize(1:2));
+        
+    % Step along x in columns of y.
+    for jColumn = 1:volumeSize(1)
+        
+        if sum(grainVolumeAligned(jColumn,:,iSlice))
+            % Find highest point.
+            temp = find(grainVolumeAligned(jColumn,:,iSlice) == ALEURONE_INDEX | ...
+                grainVolumeAligned(jColumn,:,iSlice) == ENDOSPERM_INDEX);
+            
+            grainTop = max(temp);
+            
+            % Find zeros underneath.
+            zerosIndexList = find(grainVolumeAligned(jColumn,1:grainTop,iSlice) == 0);
+
+            % Save profile.
+            creaseProfileBySlice(iSlice, jColumn) = length(zerosIndexList);
+
+            % Save image of zeros on slice.
+            tempColumn = zeros(volumeSize(2),1);
+            
+            tempColumn(zerosIndexList) = creaseProfileBySlice(iSlice, jColumn);
+
+            tempImage(jColumn, zerosIndexList) = creaseProfileBySlice(iSlice, jColumn);
+        end
+    end
+    
+    figure; imshow(tempImage/300);
+end
+figure; imshow(creaseProfileBySlice/300)
 %% Snap each surface vertices onto the surface voxels and test if aleurone.
 aleuroneSurface = fullGrainSurface;
 
