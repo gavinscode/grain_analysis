@@ -169,8 +169,6 @@ aleuroneSurfaceSubscriptArray = zeros(nIndex, 3);
 [aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), aleuroneSurfaceSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, aleuroneSurfaceIndexList);
 
-
-
 % Now get aleurone surface edge subscripts.
 % aleuroneSurfaceEdge = grainExterior; 
 % 
@@ -205,28 +203,33 @@ aleuroneSurfaceSubscriptArray = aleuroneSurfaceSubscriptArray - grainCenter;
 
 aleuroneSurfaceSubscriptArray = (aleuroneSurfaceSubscriptArray*transform2Vertical)*transform2Up;
 
+% Apply transformation to grain in volume.
 % Note: May be possible to speed up transform as done for slice reg. (Add nearest neighbour interp to C file)
-% Need to build rotation matrix from above
-% Subtract difference of grain center to volume center, 
-% Rotate 1, rotate 2
-% Shift back to original position. Multiply left to right.
 temp = zeros(4,4); temp(4,4) = 1;
+
 M1 = make_transformation_matrix(grainCenter - volumeSize/2);
+
 M2 = temp; M2(1:3,1:3) = transform2Vertical;
+
 M3 = temp; M3(1:3,1:3) = transform2Up;
+
 M4 = make_transformation_matrix(volumeSize/2 - grainCenter);
 
-grainVolume = affine_transform(grainVolume, M1*M2*M3*M4, 5);
+grainVolumeAligned = affine_transform_full(grainVolume, M1*M2*M3*M4, 5);
 
-%%% Overlay surfaces produced by each to check alignment is correct!
+% Imshow
+
 
 figure; hold on; axis equal; set(gca, 'Clipping', 'off')
 
-plot3(grainSurfaceSubscriptArray(:,1), grainSurfaceSubscriptArray(:,2), grainSurfaceSubscriptArray(:,3), 'b.')
+plot3(grainSurfaceSubscriptArray(:,1)+grainCenter(1), grainSurfaceSubscriptArray(:,2)+grainCenter(2), grainSurfaceSubscriptArray(:,3)+grainCenter(3), 'b.')
 
-plot3(aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), aleuroneSurfaceSubscriptArray(:,3), 'g.')
+
+%plot3(aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), aleuroneSurfaceSubscriptArray(:,3), 'g.')
 
 %plot3(aleuroneSurfaceEdgeSubscriptArray(:,1), aleuroneSurfaceEdgeSubscriptArray(:,2), aleuroneSurfaceEdgeSubscriptArray(:,3), 'rx')
+
+%% Fill beneath crease on each z-slices to get shaped.
 
 %% Snap each surface vertices onto the surface voxels and test if aleurone.
 aleuroneSurface = fullGrainSurface;
