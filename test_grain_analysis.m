@@ -216,6 +216,8 @@ M4 = make_transformation_matrix(volumeSize/2 - grainCenter);
 
 grainVolumeAligned = uint8(affine_transform_full(single(grainVolume), M1*M2*M3*M4, 5));
 
+grainVolumeAligned = imclose(grainVolumeAligned, STREL_6_CONNECTED);
+
 % Imshow
 
 figure; hold on; axis equal; set(gca, 'Clipping', 'off')
@@ -231,6 +233,8 @@ plot3(grainSurfaceSubscriptArray(:,1)+grainCenter(1), grainSurfaceSubscriptArray
 % Get range to check.
 zRange = [ceil( min(aleuroneSurfaceSubscriptArray(:,3))) floor( max(aleuroneSurfaceSubscriptArray(:,3)))];
 
+xRange = [ceil( min(aleuroneSurfaceSubscriptArray(:,1))) floor( max(aleuroneSurfaceSubscriptArray(:,1)))];
+
 % Get aleurone distribution by slices.
 aleuroneVoxelsBySlice = zeros(volumeSize(3),1);
 for iSlice = zRange(1):zRange(2)
@@ -239,20 +243,23 @@ for iSlice = zRange(1):zRange(2)
     
 end
 
-figure; plot(aleuroneVoxelsBySlice)
-
 % Set zRange for testing.
-zRange = [30 2110]; %[500 2000]; %[30 2110]
+zRange = find(aleuroneVoxelsBySlice); %[500 2000]; %[30 2110]
 
-creaseProfileBySlice = zeros(volumeSize(3),volumeSize(1));
+zRange = [zRange(1)+50 zRange(end)-50];
 
-cutLineBySlice = zeros(volumeSize(3),2)*NaN;
+figure; plot(aleuroneVoxelsBySlice); hold on
+plot(zRange, aleuroneVoxelsBySlice(zRange), 'rx')
 
+% Sum of zeros 1st, then max of zeros.
+creaseProfileBySlice = zeros(volumeSize(3),volumeSize(1),2);
+
+boundsLineBySlice = zeros(volumeSize(3),2)*NaN;
+
+exteriorVolume = ones(volumeSize, 'logical');
+
+% Identfiy split bounds by slice.
 for iSlice = zRange(1):zRange(2)
-    %figure; imshow(grainVolumeAligned(:,:,iSlice)*100)
-    
-    tempImage = zeros(volumeSize(1:2));
-        
     % Step along x in columns of y.
     for jColumn = 1:volumeSize(1)
         
@@ -266,48 +273,161 @@ for iSlice = zRange(1):zRange(2)
             % Find zeros underneath.
             zerosIndexList = find(grainVolumeAligned(jColumn,1:grainTop,iSlice) == 0);
 
-            % Save profile.
-            creaseProfileBySlice(iSlice, jColumn) = length(zerosIndexList);
+            exteriorVolume(jColumn,zerosIndexList,iSlice) = 0;
 
-            % Save image of zeros on slice.
-            tempImage(jColumn, zerosIndexList) = creaseProfileBySlice(iSlice, jColumn);
+            % Save profile.
+            creaseProfileBySlice(iSlice, jColumn, 1) = length(zerosIndexList);
+            
+            creaseProfileBySlice(iSlice, jColumn, 2) = max(zerosIndexList);
         end
     end
 
-    %Try to get peaks on slice.
-    tempColumn = -1*creaseProfileBySlice(iSlice, :);
+    % Find bulges on grain by getting peaks on slice. Invert and rectify.
+    tempColumn = -1*creaseProfileBySlice(iSlice, :, 1);
     
-    tempColumn(tempColumn == 0) = min(tempColumn);
-    
-    tempColumn = tempColumn - min(tempColumn);
-    
-    % Width and prominance selection is somewhat arbitary
-    widthTemp = find(creaseProfileBySlice(iSlice, :));
-    
-    widthTemp = (widthTemp(end)-widthTemp(1))/3;
+    tempColumn(tempColumn < 0) = tempColumn(tempColumn < 0) - min(tempColumn(tempColumn < 0));
 
-    heightTemp = abs( max(tempColumn)*0.5);
-
+    % Suggest minimum width, works better with general at start.
+    if iSlice < mean(zRange)
+        widthTemp = (xRange(2)-xRange(1))/3;
+    else
+        widthTemp = find(tempColumn);
+        
+        widthTemp = (widthTemp(end)-widthTemp(1))/3;
+    end
+    
+    % Suggest max height.
+    heightTemp = max([max(tempColumn)*0.25 50]);
+    
+    % Width and height minimums are somewhat arbitary, seems robust for OB6.
     [~, tempPeakIndexList] = findpeaks(tempColumn, 'MinPeakDistance', widthTemp, 'MinPeakHeight', heightTemp); 
     
-    % Plot unexpected exceptions - works well for majority of grain
+    % Ignore if more than 2
     if length(tempPeakIndexList) == 2
-        cutLineBySlice(iSlice,:) = tempPeakIndexList;
-        
-    else
-        figure; plot(tempColumn); hold on
-        
-        plot(tempPeakIndexList, tempColumn(tempPeakIndexList), 'rx');
-        
-        title(sprintf('slice %i', iSlice));
+        % Places bounds at average between center and edges.
+        boundsLineBySlice(iSlice,:) = tempPeakIndexList;
     end
 end
 
-figure; imshow(creaseProfileBySlice/300); hold on
+% Interp any missing values.
+tempMissing = find( isnan(boundsLineBySlice(:,1)));
 
-plot(cutLineBySlice(:,1), 1:volumeSize(3), 'r.')
+tempHave = find( ~isnan(boundsLineBySlice(:,1)));
 
-plot(cutLineBySlice(:,2), 1:volumeSize(3), 'r.')
+boundsLineBySlice(tempMissing,1) = interp1(tempHave, boundsLineBySlice(tempHave,1), ...
+    tempMissing, 'linear');
+
+boundsLineBySlice(tempMissing,2) = interp1(tempHave, boundsLineBySlice(tempHave,2), ...
+    tempMissing, 'linear');
+
+% Smooth.
+tempHave = find( ~isnan(boundsLineBySlice(:,1)));
+
+boundsLineBySlice(tempHave,1) = round( smooth(boundsLineBySlice(tempHave,1)));
+
+boundsLineBySlice(tempHave,2) = round( smooth(boundsLineBySlice(tempHave,2)));
+
+figure; imshow(creaseProfileBySlice(:,:,1)/300); hold on
+
+plot(boundsLineBySlice(:,1), 1:volumeSize(3), 'r.')
+
+plot(boundsLineBySlice(:,2), 1:volumeSize(3), 'r.')
+
+% Estimate centreline.
+centreLine = zeros(volumeSize(3),1)*NaN;
+for iSlice = zRange(1):zRange(2)
+    
+    if all( ~isnan( boundsLineBySlice(iSlice,:)))
+        
+        temp = boundsLineBySlice(iSlice,1):boundsLineBySlice(iSlice,2);
+    
+        centreLine(iSlice) = wmean(temp, creaseProfileBySlice(iSlice, temp).^2);
+        
+    end
+end
+
+tempHave = find( ~isnan(centreLine));
+
+centreLine(tempHave) = round(smooth(centreLine(tempHave)));
+
+plot(centreLine, 1:volumeSize(3), 'g.')
+%% Split alonge crease by slice.
+for iSlice = 1900; zRange(1):20:zRange(2)
+    if all( ~isnan( boundsLineBySlice(iSlice,:)))
+        % Set outside of bounds to one on slice.
+%         exteriorVolume(1:boundsLineBySlice(iSlice,1),:,iSlice) = 1;
+%         
+%         exteriorVolume(boundsLineBySlice(iSlice,2):end,:,iSlice) = 1;
+%         
+%         maskIm = ~exteriorVolume(:,:,iSlice);
+%         DMask = bwdist(exteriorVolume(:,:,iSlice), 'quasi-euclidean');
+%         
+%         % Calculate line from base of volume to top of centre line.
+%         bwBase = zeros(volumeSize(1:2)); bwBase(centreLine(iSlice),1) = 1;
+%         D1 = bwdist(bwBase, 'quasi-euclidean');
+%         
+%         topInd = find(exteriorVolume(centreLine(iSlice),:,iSlice) == 0);
+%         bwTop = zeros(volumeSize(1:2)); bwTop(centreLine(iSlice),topInd(end)) = 1;
+%         D2 = bwdist(bwTop, 'quasi-euclidean');
+%         DMap = D1 + D2 + DMask;
+%         
+%         paths = imregionalmin(DMap);
+%         P = imoverlay(maskIm, paths, [.5 .5 .5]);
+% 
+%         figure;
+%         imshow(P);
+
+        % Calculate distance map to use for weight later on.
+        tempImage = bwdist( exteriorVolume(:,:,iSlice), 'quasi-euclidean');
+        
+        maxHeightOnSlice = max(creaseProfileBySlice(iSlice,:,2));
+        
+        sliceCentre = zeros(maxHeightOnSlice,1)*NaN;
+   
+        % Range of X to include in center calculation.
+        xIncluded = boundsLineBySlice(iSlice,1):boundsLineBySlice(iSlice,2); 
+        
+        figure; imshow(tempImage); hold on;
+
+        % Step up y in rows of x.
+        for jRow = 1:maxHeightOnSlice
+            % Remove X if above height for column.    
+            temp = find(creaseProfileBySlice(iSlice,xIncluded,2) < jRow);
+            
+            xIncluded(temp) = [];
+
+            % Find x values corresponding to air.
+            temp = find(grainVolumeAligned(xIncluded,jRow,iSlice) == 0);
+            
+            if length(temp) > 3
+                % Take average centreline given distance weighting
+                sliceCentre(jRow) = wmean(xIncluded(temp), tempImage(xIncluded(temp),jRow)');
+            end
+            
+            %plot(jRow, xIncluded, 'g.')
+        end
+        
+        %Interp any missing values.
+        tempMissing = find( isnan(sliceCentre));
+
+        tempHave = find( ~isnan(sliceCentre));
+
+        sliceCentre(tempMissing) = interp1(tempHave, sliceCentre(tempHave), ...
+            tempMissing, 'linear');
+
+        % Smooth.
+        tempHave = find( ~isnan(sliceCentre));
+
+        sliceCentre(tempHave) = round( smooth(sliceCentre(tempHave)));
+        
+        sliceCentre(isnan(sliceCentre)) = [];
+        
+        sliceCentre(end+1:end+10) = sliceCentre(end);
+        
+        plot(1:length(sliceCentre), sliceCentre, 'r.')
+     end
+end
+
 %% Snap each surface vertices onto the surface voxels and test if aleurone.
 aleuroneSurface = fullGrainSurface;
 
