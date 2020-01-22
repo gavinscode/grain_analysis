@@ -242,9 +242,11 @@ end
 figure; plot(aleuroneVoxelsBySlice)
 
 % Set zRange for testing.
-zRange = [500 2000]; %30 2110
+zRange = [30 2110]; %[500 2000]; %[30 2110]
 
 creaseProfileBySlice = zeros(volumeSize(3),volumeSize(1));
+
+cutLineBySlice = zeros(volumeSize(3),2)*NaN;
 
 for iSlice = zRange(1):zRange(2)
     %figure; imshow(grainVolumeAligned(:,:,iSlice)*100)
@@ -268,17 +270,44 @@ for iSlice = zRange(1):zRange(2)
             creaseProfileBySlice(iSlice, jColumn) = length(zerosIndexList);
 
             % Save image of zeros on slice.
-            tempColumn = zeros(volumeSize(2),1);
-            
-            tempColumn(zerosIndexList) = creaseProfileBySlice(iSlice, jColumn);
-
             tempImage(jColumn, zerosIndexList) = creaseProfileBySlice(iSlice, jColumn);
         end
     end
+
+    %Try to get peaks on slice.
+    tempColumn = -1*creaseProfileBySlice(iSlice, :);
     
-    figure; imshow(tempImage/300);
+    tempColumn(tempColumn == 0) = min(tempColumn);
+    
+    tempColumn = tempColumn - min(tempColumn);
+    
+    % Width and prominance selection is somewhat arbitary
+    widthTemp = find(creaseProfileBySlice(iSlice, :));
+    
+    widthTemp = (widthTemp(end)-widthTemp(1))/3;
+
+    heightTemp = abs( max(tempColumn)*0.5);
+
+    [~, tempPeakIndexList] = findpeaks(tempColumn, 'MinPeakDistance', widthTemp, 'MinPeakHeight', heightTemp); 
+    
+    % Plot unexpected exceptions - works well for majority of grain
+    if length(tempPeakIndexList) == 2
+        cutLineBySlice(iSlice,:) = tempPeakIndexList;
+        
+    else
+        figure; plot(tempColumn); hold on
+        
+        plot(tempPeakIndexList, tempColumn(tempPeakIndexList), 'rx');
+        
+        title(sprintf('slice %i', iSlice));
+    end
 end
-figure; imshow(creaseProfileBySlice/300)
+
+figure; imshow(creaseProfileBySlice/300); hold on
+
+plot(cutLineBySlice(:,1), 1:volumeSize(3), 'r.')
+
+plot(cutLineBySlice(:,2), 1:volumeSize(3), 'r.')
 %% Snap each surface vertices onto the surface voxels and test if aleurone.
 aleuroneSurface = fullGrainSurface;
 
