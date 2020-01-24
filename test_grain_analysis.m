@@ -111,11 +111,8 @@ GERM_INDEX = 3;
 % Get pixels in grain.
 grainIndexList = find(grainVolume);
 
-nIndex = length(grainIndexList(1:50:end));
+nIndex = length(grainIndexList(1:50:end)); grainSubscriptArray = zeros(nIndex, 3);
 
-grainSubscriptArray = zeros(nIndex, 3);
-
-% X and Y should not need to be flipped to match image?
 [grainSubscriptArray(:,1), grainSubscriptArray(:,2), grainSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, grainIndexList(1:50:end));
 
@@ -129,6 +126,10 @@ grainLongAxis = grainAxisArray(:,1)';
 grainCreaseAxis = grainAxisArray(:,3)';
 
 grainCenter = mean(grainSubscriptArray);
+
+transform2Vertical = matrix2rotatevectors([0, 0, 1], grainLongAxis);
+
+transform2Up = matrix2rotatevectors([0, 1, 0], grainCreaseAxis*transform2Vertical);
 
 
 
@@ -183,11 +184,8 @@ end
 % Get surface indices, then convert to subscripts.
 surfaceIndexList = find(grainExterior);
 
-nIndex = length(surfaceIndexList);
+nIndex = length(surfaceIndexList); grainSurfaceSubscriptArray = zeros(nIndex, 3);
 
-grainSurfaceSubscriptArray = zeros(nIndex, 3);
-
-% X and Y should not need to be flipped to match image?
 [grainSurfaceSubscriptArray(:,1), grainSurfaceSubscriptArray(:,2), grainSurfaceSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, surfaceIndexList);
 
@@ -196,43 +194,41 @@ grainSurfaceSubscriptArray = zeros(nIndex, 3);
 % Get aleurone surface subscripts.
 aleuroneSurfaceIndexList = find(grainExterior & grainVolume == ALEURONE_INDEX);
 
-nIndex = length(aleuroneSurfaceIndexList);
-
-aleuroneSurfaceSubscriptArray = zeros(nIndex, 3);
+nIndex = length(aleuroneSurfaceIndexList); aleuroneSurfaceSubscriptArray = zeros(nIndex, 3);
 
 [aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), aleuroneSurfaceSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, aleuroneSurfaceIndexList);
 
-
+clear grainExterior, clear grainIndexList, clear grainVolume
 
 figure; hold on; axis equal; set(gca, 'Clipping', 'off')
 
-plot3(grainSurfaceSubscriptArray(:,1)+grainCenter(1), grainSurfaceSubscriptArray(:,2)+grainCenter(2), grainSurfaceSubscriptArray(:,3)+grainCenter(3), 'b.')
+plot3(grainSurfaceSubscriptArray(:,1), grainSurfaceSubscriptArray(:,2), grainSurfaceSubscriptArray(:,3), 'b.')
 %% Fill beneath crease on each z-slices to get shaped.
 % Get ranges to check.
-zRange = [ceil( min(aleuroneSurfaceSubscriptArray(:,3))) floor( max(aleuroneSurfaceSubscriptArray(:,3)))];
+zRange = [ceil( min(grainSurfaceSubscriptArray(:,3))) floor( max(grainSurfaceSubscriptArray(:,3)))];
 
-zRangeFull = [ceil( min(grainSurfaceSubscriptArray(:,3))) floor( max(grainSurfaceSubscriptArray(:,3)))];
+zRangeAleurone = [ceil( min(aleuroneSurfaceSubscriptArray(:,3))) floor( max(aleuroneSurfaceSubscriptArray(:,3)))];
 
-xRange = [ceil( min(aleuroneSurfaceSubscriptArray(:,1))) floor( max(aleuroneSurfaceSubscriptArray(:,1)))];
+xRange = [ceil( min(grainSurfaceSubscriptArray(:,1))) floor( max(grainSurfaceSubscriptArray(:,1)))];
 
-yRange = [ceil( min(aleuroneSurfaceSubscriptArray(:,2))) floor( max(aleuroneSurfaceSubscriptArray(:,2)))];
+yRange = [ceil( min(grainSurfaceSubscriptArray(:,2))) floor( max(grainSurfaceSubscriptArray(:,2)))];
 
 % Get aleurone distribution by slices.
 aleuroneVoxelsBySlice = zeros(volumeSize(3),1);
-for iSlice = zRange(1):zRange(2)
+for iSlice = zRangeAleurone(1):zRangeAleurone(2)
     
     aleuroneVoxelsBySlice(iSlice) = sum( sum(grainVolumeAligned(:,:,iSlice) == ALEURONE_INDEX));
     
 end
 
 % Set zRange for testing.
-zRange = find(aleuroneVoxelsBySlice); %[500 2000]; %[30 2110]
+zRangeAleurone = find(aleuroneVoxelsBySlice); %[500 2000]; %[30 2110]
 
-zRange = [zRange(1)+50 zRange(end)-50];
+zRangeAleurone = [zRangeAleurone(1)+50 zRangeAleurone(end)-50];
 
 figure; plot(aleuroneVoxelsBySlice); hold on
-plot(zRange, aleuroneVoxelsBySlice(zRange), 'rx')
+plot(zRangeAleurone, aleuroneVoxelsBySlice(zRangeAleurone), 'rx')
 
 % Sum of zeros 1st, then max of zeros.
 creaseProfileBySlice = zeros(volumeSize(3),volumeSize(1),2);
@@ -242,7 +238,8 @@ boundsLineBySlice = zeros(volumeSize(3),2)*NaN;
 exteriorVolume = ones(volumeSize, 'logical');
 
 % Identfiy split bounds by slice.
-for iSlice = zRange(1):zRange(2)
+for iSlice = zRangeAleurone(1):zRangeAleurone(2)
+    
     % Step along x in columns of y.
     for jColumn = 1:volumeSize(1)
         
@@ -271,7 +268,7 @@ for iSlice = zRange(1):zRange(2)
     tempColumn(tempColumn < 0) = tempColumn(tempColumn < 0) - min(tempColumn(tempColumn < 0));
 
     % Suggest minimum width, works better with general at start.
-    if iSlice < mean(zRange)
+    if iSlice < mean(zRangeAleurone)
         widthTemp = (xRange(2)-xRange(1))/3;
     else
         widthTemp = find(tempColumn);
@@ -291,6 +288,8 @@ for iSlice = zRange(1):zRange(2)
         boundsLineBySlice(iSlice,:) = tempPeakIndexList;
     end
 end
+
+clear exteriorVolume
 
 % Interp any missing values.
 tempMissing = find( isnan(boundsLineBySlice(:,1)));
@@ -318,13 +317,14 @@ plot(boundsLineBySlice(:,2), 1:volumeSize(3), 'r.')
 
 % Estimate centreline.
 centreLine = zeros(volumeSize(3),1)*NaN;
-for iSlice = zRange(1):zRange(2)
+
+for iSlice = zRangeAleurone(1):zRangeAleurone(2)
     
     if all( ~isnan( boundsLineBySlice(iSlice,:)))
         
         temp = boundsLineBySlice(iSlice,1):boundsLineBySlice(iSlice,2);
     
-        centreLine(iSlice) = wmean(temp, creaseProfileBySlice(iSlice, temp).^2);
+        centreLine(iSlice) = wmean(temp, creaseProfileBySlice(iSlice, temp, 1).^2);
         
     end
 end
@@ -334,8 +334,164 @@ tempHave = find( ~isnan(centreLine));
 centreLine(tempHave) = round(smooth(centreLine(tempHave)));
 
 plot(centreLine, 1:volumeSize(3), 'g.')
+
+% Get height along centreline.
+centreLineHeightProfile = zeros(volumeSize(3),1)*NaN;
+
+for iSlice = zRangeAleurone(1):zRangeAleurone(2)
+    
+    if all( ~isnan( boundsLineBySlice(iSlice,:)))
+        
+        centreLineHeightProfile(iSlice) = creaseProfileBySlice(iSlice,centreLine(iSlice),2);
+        
+    end
+end
+%% Create new volume to calculate loop under. 
+% First set new bounds.
+zBoundsNew = [zRange(1)-10 zRange(2)+10];
+
+if zBoundsNew(1) < 1; zBoundsNew(1) = 1; end
+
+if zBoundsNew(2) > volumeSize(3); zBoundsNew(2) = volumeSize(3); end
+
+yBoundsNew = [yRange(1)-10 yRange(2)+10];
+    
+if yBoundsNew(1) < 1; yBoundsNew(1) = 1; end
+
+if yBoundsNew(2) > volumeSize(2); yBoundsNew(2) = volumeSize(2); end
+
+xBoundsNew = [min(boundsLineBySlice(:,1))-10 max(boundsLineBySlice(:,2))+10];
+
+if xBoundsNew(1) < 1; xBoundsNew(1) = 1; end
+
+if xBoundsNew(2) > volumeSize(1); xBoundsNew(2) = volumeSize(1); end
+
+tempGrainVolume = grainVolumeAligned(xBoundsNew(1):xBoundsNew(2), ...
+    yBoundsNew(1):yBoundsNew(2), zBoundsNew(1):zBoundsNew(2));
+
+tempSize = size(tempGrainVolume);
+
+
+
+% Find loop start on top of grain. Firstly step in from top of grain
+zTopOfLoop = zRange(1)-zBoundsNew(1)+1 + 10;
+
+% Then take centre X position.
+sliceIndexList = find(tempGrainVolume(:,:,zTopOfLoop));
+
+nIndex = length(sliceIndexList); sliceSubscriptArray = zeros(nIndex, 3);
+
+[sliceSubscriptArray(:,1), sliceSubscriptArray(:,2), sliceSubscriptArray(:,3)] = ...
+    ind2sub(tempSize, sliceIndexList);
+
+xTopOfLoop = round( mean(sliceSubscriptArray(:,1)));
+
+% Then take lowest Y in line.
+tempIndex = find(sliceSubscriptArray(:,1) == xTopOfLoop);
+
+yTopOfLoop = min(sliceSubscriptArray(tempIndex,2))-1;
+
+% Repeat for bottom of loop.
+zBottomOfLoop = zRange(2)-zBoundsNew(1)+1 - 10;
+
+sliceIndexList = find(tempGrainVolume(:,:,zBottomOfLoop));
+
+nIndex = length(sliceIndexList); sliceSubscriptArray = zeros(nIndex, 3);
+
+[sliceSubscriptArray(:,1), sliceSubscriptArray(:,2), sliceSubscriptArray(:,3)] = ...
+    ind2sub(tempSize, sliceIndexList);
+
+xBottomOfLoop = round( mean(sliceSubscriptArray(:,1)));
+
+tempIndex = find(sliceSubscriptArray(:,1) == xBottomOfLoop);
+
+yBottomOfLoop = min(sliceSubscriptArray(tempIndex,2))-1;
+
+
+
+% Calc distance map from plane underneath grain.
+basePlaneVolume = zeros(tempSize, 'logical');
+
+basePlaneVolume(:,1,:) = 1;
+
+% Make mask image for grain.
+grainMask = logical(~tempGrainVolume);
+
+% Step through and cut above centre line;
+for iSlice = 1:tempSize(3)
+    
+    if ~isnan( centreLineHeightProfile(iSlice+zBoundsNew(1)-1))
+        
+        cutAbove = centreLineHeightProfile(iSlice+zBoundsNew(1)-1)-yBoundsNew(1)+1+10;
+        
+        if cutAbove < tempSize(2)
+            
+            grainMask(:, cutAbove:end, iSlice) = 0;
+        end 
+    else
+        % Cut above centre of mass of pixels.
+        sliceIndexList = find(tempGrainVolume(:,:,iSlice));
+
+        [~, ySubscriptList, ] = ind2sub(tempSize, sliceIndexList); 
+        
+        cutAbove = round( mean(ySubscriptList));
+        
+        grainMask(:, cutAbove:end, iSlice) = 0;
+    end
+end
+
+% Calculate distance maps.
+%%% Weighting for height doesn't currently seem necersary, can do with greydist.
+%distanceFromPlane = bwdistgeodesic(grainMask, basePlaneVolume, 'quasi-euclidean');
+
+distanceFromTop = bwdistgeodesic(grainMask, sub2ind(tempSize, ...
+    xTopOfLoop, yTopOfLoop, zTopOfLoop), 'quasi-euclidean');
+
+distanceFromBottom = bwdistgeodesic(grainMask, sub2ind(tempSize, ...
+    xBottomOfLoop, yBottomOfLoop, zBottomOfLoop),'quasi-euclidean');
+
+clear distanceFromPlane, clear grainMask, clear basePlaneVolume
+
+dMap = distanceFromTop + distanceFromBottom;
+
+clear distanceFromTop, clear distanceFromBottom
+
+% Round to lower precision to prevent floating point errors.
+%%% Note, changed from 8 to 32 as loop doesn't reach end.
+dMap = round(dMap * 32)/32;
+
+%%% Can also try following for better precision correction.
+%D = ( D - min(D(:)) ) / max(D(:)) D ( D < .00001 ) = 0
+
+dMap(isnan(dMap)) = Inf;
+
+% Reginal minima should define connection.
+loopVolume = imregionalmin(dMap);
+
+loopIndexList = find(loopVolume);
+
+nIndex = length(loopIndexList); loopSubscriptArray = zeros(nIndex, 3);
+
+[loopSubscriptArray(:,1), loopSubscriptArray(:,2), loopSubscriptArray(:,3)] = ...
+    ind2sub(tempSize, loopIndexList);
+
+
+
+% Test plot.
+figure; hold on; axis equal; set(gca, 'Clipping', 'off')
+
+plot3(grainSurfaceSubscriptArray(:,1)-xBoundsNew(1)+1, grainSurfaceSubscriptArray(:,2)-yBoundsNew(1)+1,...
+    grainSurfaceSubscriptArray(:,3)-zBoundsNew(1)+1, 'b.'); 
+
+line(xTopOfLoop*[1 1], [1 yTopOfLoop], zTopOfLoop*[1 1])
+
+line(xBottomOfLoop*[1 1], [1 yBottomOfLoop], zBottomOfLoop*[1 1])
+
+plot3(loopSubscriptArray(:,1), loopSubscriptArray(:,2),...
+    loopSubscriptArray(:,3), 'r.'); 
+
 %% Split alonge crease by slice. - probably wont use.
-for iSlice = 1900; zRange(1):20:zRange(2)
+for iSlice = 1900; zRangeAleurone(1):20:zRangeAleurone(2)
     if all( ~isnan( boundsLineBySlice(iSlice,:)))
         % Set outside of bounds to one on slice.
         exteriorVolume(1:boundsLineBySlice(iSlice,1),:,iSlice) = 1;
