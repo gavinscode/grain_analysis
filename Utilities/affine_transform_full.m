@@ -23,9 +23,12 @@ function Iout=affine_transform_full(Iin,M,mode)
 % affine_transform_3d_double & affine_transform_3d_single & image_interpolation
 % these are placed in original directory via symbolic links for compilation
 % 
-% To do: Add support for nearest pixel on border (4) by adding:
+% To do: -Add support for nearest pixel on border (4) by adding:
 %   interpolate_3d_float_nearest & interpolate_3d_nearest to image_interpolation
-% Also add/check support for 2D
+%   -Also add/check support for 2D
+%   -Note error occurs with small missing pixels in nearest interpolation
+%   check if this also occurs in linear. May need to modify c files.
+        
 
 if(~exist('mode','var')), mode=0; end
 if(size(Iin,3)<4)

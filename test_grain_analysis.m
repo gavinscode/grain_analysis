@@ -108,13 +108,53 @@ GERM_INDEX = 3;
 
 
 %% Get voxels on exterior of orignal grain by overlap to exterior.
+% Get pixels in grain.
+grainIndexList = find(grainVolume);
+
+nIndex = length(grainIndexList(1:50:end));
+
+grainSubscriptArray = zeros(nIndex, 3);
+
+% X and Y should not need to be flipped to match image?
+[grainSubscriptArray(:,1), grainSubscriptArray(:,2), grainSubscriptArray(:,3)] = ...
+    ind2sub(volumeSize, grainIndexList(1:50:end));
+
+
+
+% Get long axis of grain with PCA.
+grainAxisArray = pca(grainSubscriptArray);
+
+grainLongAxis = grainAxisArray(:,1)';
+
+grainCreaseAxis = grainAxisArray(:,3)';
+
+grainCenter = mean(grainSubscriptArray);
+
+
+
+% Apply transformation to grain in volume.
+temp = zeros(4,4); temp(4,4) = 1;
+
+M1 = make_transformation_matrix(grainCenter - volumeSize/2);
+
+M2 = temp; M2(1:3,1:3) = transform2Vertical;
+
+M3 = temp; M3(1:3,1:3) = transform2Up;
+
+M4 = make_transformation_matrix(volumeSize/2 - grainCenter);
+
+grainVolumeAligned = uint8(affine_transform_full(single(grainVolume), M1*M2*M3*M4, 5));
+
+grainVolumeAligned = imclose(grainVolumeAligned, STREL_6_CONNECTED);
+
+% Get exterior voxles
 %%% ADD FUNCTION for this and replace in loop.
-grainExterior = ~grainVolume;
+grainExterior = ~grainVolumeAligned;
 
 % Exterior is outer volume, and grown into other volume.
 grainExterior = imdilate(grainExterior, STREL_18_CONNECTED);
 
-grainExterior = grainExterior & grainVolume;
+grainExterior = grainExterior & grainVolumeAligned;
 
 % Take largest connected region.
 tempCC = bwconncomp(grainExterior, 18);
@@ -151,14 +191,7 @@ grainSurfaceSubscriptArray = zeros(nIndex, 3);
 [grainSurfaceSubscriptArray(:,1), grainSurfaceSubscriptArray(:,2), grainSurfaceSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, surfaceIndexList);
 
-% Get long axis of grain with PCA.
-grainAxisArray = pca(grainSurfaceSubscriptArray);
 
-grainLongAxis = grainAxisArray(:,1)';
-
-grainCreaseAxis = grainAxisArray(:,3)';
-
-grainCenter = mean(grainSurfaceSubscriptArray);
 
 % Get aleurone surface subscripts.
 aleuroneSurfaceIndexList = find(grainExterior & grainVolume == ALEURONE_INDEX);
@@ -170,70 +203,20 @@ aleuroneSurfaceSubscriptArray = zeros(nIndex, 3);
 [aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), aleuroneSurfaceSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, aleuroneSurfaceIndexList);
 
-% Now get aleurone surface edge subscripts.
-% aleuroneSurfaceEdge = grainExterior; 
-% 
-% % Take border outside of aleurone, grow in and then remove.
-% aleuroneSurfaceEdge(aleuroneSurfaceIndexList) = 0; 
-% 
-% aleuroneSurfaceEdge = imdilate(aleuroneSurfaceEdge, STREL_18_CONNECTED);
-% 
-% aleuroneSurfaceEdge = aleuroneSurfaceEdge & grainExterior;
-% 
-% aleuroneSurfaceEdge(grainVolume ~= ALEURONE_INDEX) = 0;
-% 
-% aleuroneSurfaceEdgeIndexList = find(aleuroneSurfaceEdge);
-% 
-% nIndex = length(aleuroneSurfaceEdgeIndexList);
-% 
-% aleuroneSurfaceEdgeSubscriptArray = zeros(nIndex, 3);
-% 
-% [aleuroneSurfaceEdgeSubscriptArray(:,1), aleuroneSurfaceEdgeSubscriptArray(:,2), aleuroneSurfaceEdgeSubscriptArray(:,3)] = ...
-%     ind2sub(volumeSize, aleuroneSurfaceEdgeIndexList);
 
-% Rotate grain exterior voxels.
-transform2Vertical = matrix2rotatevectors([0, 0, 1], grainLongAxis);
-
-transform2Up = matrix2rotatevectors([0, 1, 0], grainCreaseAxis*transform2Vertical);
-
-grainSurfaceSubscriptArray = ((grainSurfaceSubscriptArray- grainCenter)*...
-    transform2Vertical)*transform2Up + grainCenter;
-
-aleuroneSurfaceSubscriptArray = ((aleuroneSurfaceSubscriptArray - grainCenter)*...
-    transform2Vertical)*transform2Up + grainCenter;
-
-% Apply transformation to grain in volume.
-% Note: May be possible to speed up transform as done for slice reg. (Add nearest neighbour interp to C file)
-temp = zeros(4,4); temp(4,4) = 1;
-
-M1 = make_transformation_matrix(grainCenter - volumeSize/2);
-
-M2 = temp; M2(1:3,1:3) = transform2Vertical;
-
-M3 = temp; M3(1:3,1:3) = transform2Up;
-
-M4 = make_transformation_matrix(volumeSize/2 - grainCenter);
-
-grainVolumeAligned = uint8(affine_transform_full(single(grainVolume), M1*M2*M3*M4, 5));
-
-grainVolumeAligned = imclose(grainVolumeAligned, STREL_6_CONNECTED);
-
-% Imshow
 
 figure; hold on; axis equal; set(gca, 'Clipping', 'off')
 
 plot3(grainSurfaceSubscriptArray(:,1)+grainCenter(1), grainSurfaceSubscriptArray(:,2)+grainCenter(2), grainSurfaceSubscriptArray(:,3)+grainCenter(3), 'b.')
-
-
-%plot3(aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), aleuroneSurfaceSubscriptArray(:,3), 'g.')
-
-%plot3(aleuroneSurfaceEdgeSubscriptArray(:,1), aleuroneSurfaceEdgeSubscriptArray(:,2), aleuroneSurfaceEdgeSubscriptArray(:,3), 'rx')
-
 %% Fill beneath crease on each z-slices to get shaped.
-% Get range to check.
+% Get ranges to check.
 zRange = [ceil( min(aleuroneSurfaceSubscriptArray(:,3))) floor( max(aleuroneSurfaceSubscriptArray(:,3)))];
 
+zRangeFull = [ceil( min(grainSurfaceSubscriptArray(:,3))) floor( max(grainSurfaceSubscriptArray(:,3)))];
+
 xRange = [ceil( min(aleuroneSurfaceSubscriptArray(:,1))) floor( max(aleuroneSurfaceSubscriptArray(:,1)))];
+
+yRange = [ceil( min(aleuroneSurfaceSubscriptArray(:,2))) floor( max(aleuroneSurfaceSubscriptArray(:,2)))];
 
 % Get aleurone distribution by slices.
 aleuroneVoxelsBySlice = zeros(volumeSize(3),1);
@@ -351,13 +334,13 @@ tempHave = find( ~isnan(centreLine));
 centreLine(tempHave) = round(smooth(centreLine(tempHave)));
 
 plot(centreLine, 1:volumeSize(3), 'g.')
-%% Split alonge crease by slice.
+%% Split alonge crease by slice. - probably wont use.
 for iSlice = 1900; zRange(1):20:zRange(2)
     if all( ~isnan( boundsLineBySlice(iSlice,:)))
         % Set outside of bounds to one on slice.
-%         exteriorVolume(1:boundsLineBySlice(iSlice,1),:,iSlice) = 1;
-%         
-%         exteriorVolume(boundsLineBySlice(iSlice,2):end,:,iSlice) = 1;
+        exteriorVolume(1:boundsLineBySlice(iSlice,1),:,iSlice) = 1;
+        
+        exteriorVolume(boundsLineBySlice(iSlice,2):end,:,iSlice) = 1;
 %         
 %         maskIm = ~exteriorVolume(:,:,iSlice);
 %         DMask = bwdist(exteriorVolume(:,:,iSlice), 'quasi-euclidean');
@@ -378,7 +361,10 @@ for iSlice = 1900; zRange(1):20:zRange(2)
 %         imshow(P);
 
         % Calculate distance map to use for weight later on.
-        tempImage = bwdist( exteriorVolume(:,:,iSlice), 'quasi-euclidean');
+        %mask = ~exteriorVolume(:,:,iSlice);
+        %start = 
+
+        tempImage = bwdistgeodesic(~exteriorVolume(:,:,iSlice), 'quasi-euclidean');
         
         maxHeightOnSlice = max(creaseProfileBySlice(iSlice,:,2));
         
