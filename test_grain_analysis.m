@@ -410,23 +410,23 @@ yBottomOfLoop = min(sliceSubscriptArray(tempIndex,2))-1;
 
 
 % Calc distance map from plane underneath grain.
-basePlaneVolume = zeros(tempSize, 'logical');
+%basePlaneVolume = zeros(tempSize, 'logical');
 
-basePlaneVolume(:,1,:) = 1;
+%basePlaneVolume(:,1,:) = 1;
 
 % Make mask image for grain.
-grainMask = logical(~tempGrainVolume);
+grainMask = logical(tempGrainVolume);
 
 % Step through and cut above centre line;
 for iSlice = 1:tempSize(3)
     
     if ~isnan( centreLineHeightProfile(iSlice+zBoundsNew(1)-1))
         
-        cutAbove = centreLineHeightProfile(iSlice+zBoundsNew(1)-1)-yBoundsNew(1)+1+10;
+        cutAbove = centreLineHeightProfile(iSlice+zBoundsNew(1)-1)-yBoundsNew(1)+1+50;
         
         if cutAbove < tempSize(2)
             
-            grainMask(:, cutAbove:end, iSlice) = 0;
+            grainMask(:, cutAbove:end, iSlice) = 1;
         end 
     else
         % Cut above centre of mass of pixels.
@@ -434,23 +434,33 @@ for iSlice = 1:tempSize(3)
 
         [~, ySubscriptList, ] = ind2sub(tempSize, sliceIndexList); 
         
-        cutAbove = round( mean(ySubscriptList));
-        
-        grainMask(:, cutAbove:end, iSlice) = 0;
+        if ~isempty(ySubscriptList)
+            cutAbove = round( mean(ySubscriptList));
+
+            grainMask(:, cutAbove:end, iSlice) = 1;
+        end
     end
 end
 
-% Calculate distance maps.
-%%% Weighting for height doesn't currently seem necersary, can do with greydist.
-%distanceFromPlane = bwdistgeodesic(grainMask, basePlaneVolume, 'quasi-euclidean');
+% Calculate distance maps - note polarity of mask is opposite when using bwdist
+%distanceFromPlane = bwdistgeodesic(~grainMask, basePlaneVolume, 'quasi-euclidean');
+tic
+distanceFromGrain = bwdist(grainMask, 'quasi-euclidean');
+toc
 
-distanceFromTop = bwdistgeodesic(grainMask, sub2ind(tempSize, ...
+% Need to set interior to max to prevent traversal. 
+distanceFromGrain(grainMask) = Inf;
+
+% Graydist takes a long time.
+tic
+distanceFromTop = graydist(distanceFromGrain, sub2ind(tempSize, ...
     xTopOfLoop, yTopOfLoop, zTopOfLoop), 'quasi-euclidean');
+toc
 
-distanceFromBottom = bwdistgeodesic(grainMask, sub2ind(tempSize, ...
+tic
+distanceFromBottom = graydist(distanceFromGrain, sub2ind(tempSize, ...
     xBottomOfLoop, yBottomOfLoop, zBottomOfLoop),'quasi-euclidean');
-
-clear distanceFromPlane, clear grainMask, clear basePlaneVolume
+toc
 
 dMap = distanceFromTop + distanceFromBottom;
 
@@ -458,15 +468,16 @@ clear distanceFromTop, clear distanceFromBottom
 
 % Round to lower precision to prevent floating point errors.
 %%% Note, changed from 8 to 32 as loop doesn't reach end.
-dMap = round(dMap * 32)/32;
-
-%%% Can also try following for better precision correction.
-%D = ( D - min(D(:)) ) / max(D(:)) D ( D < .00001 ) = 0
+dMap = round(dMap * 64)/64;
 
 dMap(isnan(dMap)) = Inf;
 
+
+
 % Reginal minima should define connection.
 loopVolume = imregionalmin(dMap);
+
+clear dMap
 
 loopIndexList = find(loopVolume);
 
@@ -475,20 +486,90 @@ nIndex = length(loopIndexList); loopSubscriptArray = zeros(nIndex, 3);
 [loopSubscriptArray(:,1), loopSubscriptArray(:,2), loopSubscriptArray(:,3)] = ...
     ind2sub(tempSize, loopIndexList);
 
+%%% Should confirm this is top of crease.
+
 
 
 % Test plot.
 figure; hold on; axis equal; set(gca, 'Clipping', 'off')
 
-plot3(grainSurfaceSubscriptArray(:,1)-xBoundsNew(1)+1, grainSurfaceSubscriptArray(:,2)-yBoundsNew(1)+1,...
-    grainSurfaceSubscriptArray(:,3)-zBoundsNew(1)+1, 'b.'); 
+%plot3(grainSurfaceSubscriptArray(:,1)-xBoundsNew(1)+1, grainSurfaceSubscriptArray(:,2)-yBoundsNew(1)+1,...
+%  grainSurfaceSubscriptArray(:,3)-zBoundsNew(1)+1, 'b.'); 
 
 line(xTopOfLoop*[1 1], [1 yTopOfLoop], zTopOfLoop*[1 1])
 
 line(xBottomOfLoop*[1 1], [1 yBottomOfLoop], zBottomOfLoop*[1 1])
 
 plot3(loopSubscriptArray(:,1), loopSubscriptArray(:,2),...
-    loopSubscriptArray(:,3), 'r.'); 
+   loopSubscriptArray(:,3), 'r.'); 
+
+%% Now find centre-curve by slice.
+
+centreCurveVolume = zeros(tempSize);
+
+% Transform distance from grain so centrelines are emphasized.
+distanceFromGrain(grainMask) = 0;
+
+distanceFromGrain = -log(distanceFromGrain);
+
+distanceFromGrain = distanceFromGrain - min(distanceFromGrain(:));
+
+distanceFromGrain(grainMask) = Inf;
+
+basePlane = zeros(tempSize(1:2), 'logical');
+
+basePlane(:,1) = 1;
+
+for iSlice = 1:tempSize(3);
+   
+    % Check if exisiting crease points of crease on slice.
+    indexList = find(loopVolume(:,:,iSlice));
+    
+    if ~isempty(indexList)
+        
+        % Calculate distance maps to find minimum path from top of crease to base plane.
+        distanceFromCrease = graydist(distanceFromGrain(:,:,iSlice), loopVolume(:,:,iSlice), 'quasi-euclidean');
+        
+        distanceFromBase = graydist(distanceFromGrain(:,:,iSlice), basePlane, 'quasi-euclidean');
+        
+        dMap = distanceFromCrease + distanceFromBase;
+        
+        dMap = round(dMap * 64)/64;
+
+        dMap(isnan(dMap)) = Inf;
+        
+        % Regional minima is shortest path
+        curveSlice = imregionalmin(dMap);
+
+        % If regions are not linked, everything will be Inf
+        curveSlice(curveSlice & isinf(dMap)) = 0;
+
+        %temp = curveSlice + grainMask(:,:,iSlice);
+        %figure; imshow(temp)
+        
+
+        
+        % Test that line links top and bottom.
+        planeInCurve = sum(curveSlice(:) & basePlane(:));
+        
+        loopInCurve = sum(sum(curveSlice & loopVolume(:,:,iSlice)));
+
+        if planeInCurve & loopInCurve
+            centreCurveVolume(:,:,iSlice) = curveSlice;
+
+            curveIndexList = find(curveSlice);
+
+            nIndex = length(curveIndexList); curveSubscriptArray = zeros(nIndex, 3);
+
+            [curveSubscriptArray(:,1), curveSubscriptArray(:,2)] = ...
+               ind2sub(tempSize(1:2), curveIndexList);
+
+           plot3(curveSubscriptArray(:,1), curveSubscriptArray(:,2),...
+                iSlice*ones(nIndex,1), '.'); 
+        end
+    end
+end
+
 
 %% Split alonge crease by slice. - probably wont use.
 for iSlice = 1900; zRangeAleurone(1):20:zRangeAleurone(2)
