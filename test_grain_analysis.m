@@ -201,9 +201,9 @@ nIndex = length(aleuroneSurfaceIndexList); aleuroneSurfaceSubscriptArray = zeros
 
 clear grainExterior, clear grainIndexList, clear grainVolume
 
-figure; hold on; axis equal; set(gca, 'Clipping', 'off')
+%figure; hold on; axis equal; set(gca, 'Clipping', 'off')
 
-plot3(grainSurfaceSubscriptArray(:,1), grainSurfaceSubscriptArray(:,2), grainSurfaceSubscriptArray(:,3), 'b.')
+%plot3(grainSurfaceSubscriptArray(:,1), grainSurfaceSubscriptArray(:,2), grainSurfaceSubscriptArray(:,3), 'b.')
 %% Fill beneath crease on each z-slices to get shaped.
 % Get ranges to check.
 zRange = [ceil( min(grainSurfaceSubscriptArray(:,3))) floor( max(grainSurfaceSubscriptArray(:,3)))];
@@ -479,6 +479,32 @@ loopVolume = imregionalmin(dMap);
 
 clear dMap
 
+
+
+% Take largest connected region of loop
+tempCC = bwconncomp(loopVolume, 26);
+
+tempStats = regionprops(tempCC, 'PixelIdxList');
+
+% Get number of voxels in each region. 
+nRegions = length(tempStats);
+
+voxelsPerRegionArray = zeros(nRegions,1);
+
+for iRegion = 1:nRegions
+    voxelsPerRegionArray(iRegion) = length(tempStats(iRegion).PixelIdxList);
+end
+
+% Largest will generally be much larger than others.
+[~, tempIndex] = max(voxelsPerRegionArray);
+
+tempStats(tempIndex) = [];
+
+% Remove other regions from volume.
+for iRegion = 1:nRegions-1
+    loopVolume(tempStats(iRegion).PixelIdxList) = 0;
+end
+
 loopIndexList = find(loopVolume);
 
 nIndex = length(loopIndexList); loopSubscriptArray = zeros(nIndex, 3);
@@ -486,15 +512,14 @@ nIndex = length(loopIndexList); loopSubscriptArray = zeros(nIndex, 3);
 [loopSubscriptArray(:,1), loopSubscriptArray(:,2), loopSubscriptArray(:,3)] = ...
     ind2sub(tempSize, loopIndexList);
 
-%%% Should confirm this is top of crease.
+zTopOfLoop = min(loopSubscriptArray(:,3));
+
+zBottomOfLoop = max(loopSubscriptArray(:,3));
 
 
 
 % Test plot.
 figure; hold on; axis equal; set(gca, 'Clipping', 'off')
-
-%plot3(grainSurfaceSubscriptArray(:,1)-xBoundsNew(1)+1, grainSurfaceSubscriptArray(:,2)-yBoundsNew(1)+1,...
-%  grainSurfaceSubscriptArray(:,3)-zBoundsNew(1)+1, 'b.'); 
 
 line(xTopOfLoop*[1 1], [1 yTopOfLoop], zTopOfLoop*[1 1])
 
@@ -503,24 +528,82 @@ line(xBottomOfLoop*[1 1], [1 yBottomOfLoop], zBottomOfLoop*[1 1])
 plot3(loopSubscriptArray(:,1), loopSubscriptArray(:,2),...
    loopSubscriptArray(:,3), 'r.'); 
 
+%%% Expand on this, need to create connected line between slices
+%%% Step along, taking highest connected points on each slice
+% Take highest point above centre of loop at each slice.
+% for iSlice = topOfLoopZ:bottomOfLoopZ
+%     
+%     loopSlice = loopVolume(:,:,iSlice);
+%     
+%     % Check if more than one coordinate.
+%     if sum(loopSlice(:)) > 1
+%         % Take average of coordinates.
+%         tempIndexList = find(loopSlice);
+% 
+%         nIndex = length(tempIndexList); tempSubscriptArray = zeros(nIndex, 2);
+% 
+%         [tempSubscriptArray(:,1), tempSubscriptArray(:,2)] = ind2sub(tempSize(1:2), tempIndexList);
+%         
+%         averagePosition = mean(tempSubscriptArray);
+%         
+%         % Find closest point on exisiting loop to average position
+%         [~, minIndex] = min( sqrt((averagePosition(1) - tempSubscriptArray(:,1)).^2 + ... 
+%                 (averagePosition(2) - tempSubscriptArray(:,2)).^2));
+%                 
+%         averagePosition = tempSubscriptArray(minIndex,:);
+%         
+%         % Raise average position up until it is just below volume
+% %         while grainMask(averagePosition(1),averagePosition(2)+1,iSlice) == 0
+% %             averagePosition(2) = averagePosition(2)+1;
+% %             
+% %             if averagePosition(2) == tempSize(2)
+% %                error('Midline has risen to top of volume') 
+% %             end
+% %         end
+% 
+%         % Clear loop slice and place single index.
+%         loopSlice(tempIndexList) = 0;
+%         
+%         loopSlice(averagePosition(1), averagePosition(2)) = 1;
+%         
+%         loopVolume(:,:,iSlice) = loopSlice;
+%     end
+% end
+%
+%
+%
+% loopIndexList = find(loopVolume);
+% 
+% nIndex = length(loopIndexList); loopSubscriptArray = zeros(nIndex, 3);
+% 
+% [loopSubscriptArray(:,1), loopSubscriptArray(:,2), loopSubscriptArray(:,3)] = ...
+%     ind2sub(tempSize, loopIndexList);
+% 
+% plot3(loopSubscriptArray(:,1), loopSubscriptArray(:,2),...
+%    loopSubscriptArray(:,3), 'bx'); 
+
 %% Now find centre-curve by slice.
 
-centreCurveVolume = zeros(tempSize);
+centreCurveVolume = zeros(tempSize, 'logical');
 
 % Transform distance from grain so centrelines are emphasized.
-distanceFromGrain(grainMask) = 0;
+distanceNearGrain = distanceFromGrain;
 
-distanceFromGrain = -log(distanceFromGrain);
+distanceNearGrain(grainMask) = 0;
 
-distanceFromGrain = distanceFromGrain - min(distanceFromGrain(:));
+distanceNearGrain = -log(distanceNearGrain);
 
-distanceFromGrain(grainMask) = Inf;
+distanceNearGrain = distanceNearGrain - min(distanceNearGrain(:));
+
+distanceNearGrain(grainMask) = Inf;
 
 basePlane = zeros(tempSize(1:2), 'logical');
 
 basePlane(:,1) = 1;
 
-for iSlice = 1:tempSize(3);
+missingSlices = zeros(tempSize(3),1);
+
+for iSlice = 1:tempSize(3)
    
     % Check if exisiting crease points of crease on slice.
     indexList = find(loopVolume(:,:,iSlice));
@@ -528,9 +611,9 @@ for iSlice = 1:tempSize(3);
     if ~isempty(indexList)
         
         % Calculate distance maps to find minimum path from top of crease to base plane.
-        distanceFromCrease = graydist(distanceFromGrain(:,:,iSlice), loopVolume(:,:,iSlice), 'quasi-euclidean');
+        distanceFromCrease = graydist(distanceNearGrain(:,:,iSlice), loopVolume(:,:,iSlice), 'quasi-euclidean');
         
-        distanceFromBase = graydist(distanceFromGrain(:,:,iSlice), basePlane, 'quasi-euclidean');
+        distanceFromBase = graydist(distanceNearGrain(:,:,iSlice), basePlane, 'quasi-euclidean');
         
         dMap = distanceFromCrease + distanceFromBase;
         
@@ -565,10 +648,82 @@ for iSlice = 1:tempSize(3);
                ind2sub(tempSize(1:2), curveIndexList);
 
            plot3(curveSubscriptArray(:,1), curveSubscriptArray(:,2),...
-                iSlice*ones(nIndex,1), '.'); 
+                iSlice*ones(nIndex,1), 'b.'); 
+        else
+           missingSlices(iSlice) = 1; 
         end
     end
 end
+
+%% Interpolate missing slices.
+missingSliceIndexList = find(missingSlices);
+
+sliceSteps = find(diff(missingSliceIndexList) > 1);
+
+nMissingSlices = length(missingSliceIndexList);
+
+% Get points to interpolate.
+yToInterpolate = zeros(nMissingSlices, tempSize(2))*NaN;
+
+zToInterpolate = zeros(nMissingSlices, tempSize(2))*NaN;
+
+for iSlice = 1:nMissingSlices
+    % Find y position of loop on slice   
+    tempIndexList = find(loopVolume(:,:,missingSliceIndexList(iSlice)));
+
+    nIndex = length(tempIndexList); tempSubscriptArray = zeros(nIndex, 2);
+
+    [tempSubscriptArray(:,1), tempSubscriptArray(:,2)] = ind2sub(tempSize(1:2), tempIndexList);
+    
+    % Only allocate up to highest Y on loop.
+    yToInterpolate(iSlice,1:max(tempSubscriptArray(:,2))) = 1:max(tempSubscriptArray(:,2));
+    
+    zToInterpolate(iSlice,:) = missingSliceIndexList(iSlice);
+end
+
+% Remove excess interpolation points.
+zToInterpolate(isnan(yToInterpolate)) = [];
+
+yToInterpolate(isnan(yToInterpolate)) = [];
+
+
+
+curveIndexList = find(centreCurveVolume);
+
+nIndex = length(curveIndexList); curveSubscriptArray = zeros(nIndex, 3);
+
+[curveSubscriptArray(:,1), curveSubscriptArray(:,2), curveSubscriptArray(:,3)] = ...
+    ind2sub(tempSize, curveIndexList);
+
+xInterpolated = griddata(curveSubscriptArray(:,2), curveSubscriptArray(:,3), curveSubscriptArray(:,1), ...
+    yToInterpolate, zToInterpolate, 'linear');
+
+% Test plot.
+figure; hold on; axis equal; set(gca, 'Clipping', 'off')
+
+%plot3(grainSurfaceSubscriptArray(:,1)-xBoundsNew(1)+1, grainSurfaceSubscriptArray(:,2)-yBoundsNew(1)+1,...
+%  grainSurfaceSubscriptArray(:,3)-zBoundsNew(1)+1, 'b.'); 
+
+line(xTopOfLoop*[1 1], [1 yTopOfLoop], zTopOfLoop*[1 1])
+
+line(xBottomOfLoop*[1 1], [1 yBottomOfLoop], zBottomOfLoop*[1 1])
+
+plot3(loopSubscriptArray(:,1), loopSubscriptArray(:,2),...
+   loopSubscriptArray(:,3), 'r.'); 
+
+plot3(curveSubscriptArray(:,1), curveSubscriptArray(:,2), curveSubscriptArray(:,3), 'b.')
+
+plot3(xInterpolated, yToInterpolate, zToInterpolate, 'g.')
+
+%%% Check it is closed
+closureTest = convn(centreCurveVolume, STREL_18_CONNECTED.Neighborhood);
+
+figure; hist(closureTest(closureTest ~= 0));
+
+%Test each point for 16 closure, if not, draw line to adjacent point on x
+%slice
+
+%%% Add slight cut in and above end
 
 
 %% Split alonge crease by slice. - probably wont use.
