@@ -614,8 +614,8 @@ nIndex = length(curveIndexList); curveSubscriptArray = zeros(nIndex, 3);
 [curveSubscriptArray(:,1), curveSubscriptArray(:,2), curveSubscriptArray(:,3)] = ...
     ind2sub(smallVolumeSize, curveIndexList);
 
-xInterpolated = griddata(curveSubscriptArray(:,2), curveSubscriptArray(:,3), curveSubscriptArray(:,1), ...
-    yToInterpolate, zToInterpolate, 'linear');
+xInterpolated = round(griddata(curveSubscriptArray(:,2), curveSubscriptArray(:,3), curveSubscriptArray(:,1), ...
+    yToInterpolate, zToInterpolate, 'linear'));
 
 % Test plot.
 figure; hold on; axis equal; set(gca, 'Clipping', 'off')
