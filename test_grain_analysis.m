@@ -389,8 +389,10 @@ dMap = distanceFromTop + distanceFromBottom;
 clear distanceFromTop, clear distanceFromBottom
 
 % Round to lower precision to prevent floating point errors.
-%%% Note, changed from 8 to 32 as loop doesn't reach end.
-dMap = round(dMap * 64)/64;
+%%% Note, changed from 8 to 32 as loop doesn't reach end,
+%%% but higher causes some external points to be included. 
+%%% 32 closes but allows some floaters
+dMap = round(dMap * 2^5)/2^5;
 
 dMap(isnan(dMap)) = Inf;
 
@@ -418,7 +420,7 @@ distanceFromEnd = bwdistgeodesic(loopVolume, sub2ind(smallVolumeSize, ...
   xBottomOfLoop, yBottomOfLoop, zBottomOfLoop), 'quasi-euclidean');
 
 % Step along loop towards end.
-for iStep = 2:smallVolumeSize(3)
+for iStep = 2:smallVolumeSize(3)*2
     % Get all distances to the adjacent points of previous point.
     distanceArray = zeros(26,1);
     
@@ -480,25 +482,6 @@ loopVolume(tempIndexList) = 1;
 loopIndexList = find(loopVolume);
 
 nIndex = length(loopIndexList); loopSubscriptArray = zeros(nIndex, 3);
-
-
-
-
-figure; hold on; axis equal; set(gca, 'Clipping', 'off')
-
-%plot3(grainSurfaceSubscriptArray(:,1)-xBoundsNew(1)+1, grainSurfaceSubscriptArray(:,2)-yBoundsNew(1)+1,...
-%  grainSurfaceSubscriptArray(:,3)-zBoundsNew(1)+1, 'b.'); 
-
-line(xTopOfLoop*[1 1], [1 yTopOfLoop], zTopOfLoop*[1 1])
-
-line(xBottomOfLoop*[1 1], [1 yBottomOfLoop], zBottomOfLoop*[1 1])
-
-[loopSubscriptArray(:,1), loopSubscriptArray(:,2), loopSubscriptArray(:,3)] = ...
-    ind2sub(smallVolumeSize, loopIndexList);
-
-plot3(loopSubscriptArray(:,1), loopSubscriptArray(:,2),...
-   loopSubscriptArray(:,3), 'r.'); 
-
 %% Now find centre-curve by slice.
 
 centreCurveVolume = zeros(smallVolumeSize, 'logical');
@@ -517,6 +500,8 @@ distanceNearGrain(grainMask) = Inf;
 basePlane = zeros(smallVolumeSize(1:2), 'logical');
 
 basePlane(:,1) = 1;
+% Note that using single point frequently causes multiple lines to be drawn.
+%basePlane(round(smallVolumeSize(1)/2),1) = 1;
 
 missingSlices = zeros(smallVolumeSize(3),1);
 
@@ -527,15 +512,20 @@ for iSlice = 1:smallVolumeSize(3)
     
     if ~isempty(indexList)
         
+        loopSlice = loopVolume(:,:,iSlice);
+        
         % Calculate distance maps to find minimum path from top of crease to base plane.
-        distanceFromCrease = graydist(distanceNearGrain(:,:,iSlice), loopVolume(:,:,iSlice), 'quasi-euclidean');
+        distanceFromCrease = graydist(distanceNearGrain(:,:,iSlice), loopSlice, 'quasi-euclidean');
         
         distanceFromBase = graydist(distanceNearGrain(:,:,iSlice), basePlane, 'quasi-euclidean');
         
         dMap = distanceFromCrease + distanceFromBase;
         
-        dMap = round(dMap * 64)/64;
-
+        %%% Need to be careful setting precision to balance floaters with holes.
+        %%% Lower value reduces floaters but can cause slices not to be connected at top or bottom. 
+        %%% Using full base plane or point also influences best precision.
+        dMap = round(dMap * 2^5)/2^5;
+        
         dMap(isnan(dMap)) = Inf;
         
         % Regional minima is shortest path
@@ -543,20 +533,46 @@ for iSlice = 1:smallVolumeSize(3)
 
         % If regions are not linked, everything will be Inf
         curveSlice(curveSlice & isinf(dMap)) = 0;
-
-        %temp = curveSlice + grainMask(:,:,iSlice);
-        %figure; imshow(temp)
         
+        if iSlice == 21
+            %temp = curveSlice + grainMask(:,:,iSlice);
+            %figure; imshow(temp)
+        end
 
-        
         % Test that line links top and bottom.
         planeInCurve = sum(curveSlice(:) & basePlane(:));
         
-        loopInCurve = sum(sum(curveSlice & loopVolume(:,:,iSlice)));
+        loopInCurve = sum(curveSlice(:) & loopSlice(:));
 
-        if planeInCurve & loopInCurve
+        % Using plane helps, but occasionally double connections are made. 
+        % Test for this and they will be interpolated if occuring.
+        
+        if planeInCurve == 1 & loopInCurve
+            % Floaters and breaks can still occur (!)
+            % Check top and bottom are in main regions.
+            tempCC = bwconncomp(curveSlice, 8);
+
+            tempStats = regionprops(tempCC, 'PixelIdxList');
+
+            nRegions = length(tempStats);
+            
+            % Remove region from curve slice if top/bottom not included
+            for jRegion = 1:nRegions
+                if sum(loopSlice(tempStats(jRegion).PixelIdxList)) == 0 && ...
+                    sum(basePlane(tempStats(jRegion).PixelIdxList)) == 0
+                    
+                    curveSlice(tempStats(jRegion).PixelIdxList) = 0; 
+                    
+                    %figure; imshow(curveSlice);
+                end
+            end
+            
+            % Curves can sometimes be thick, so now using thinning
+            % Seems more noticable when single point on base plane used.
+            curveSlice = bwmorph(curveSlice, 'thin', inf);
+            
             %Add slice of curve and loop to curve volume
-            centreCurveVolume(:,:,iSlice) = curveSlice | loopVolume(:,:,iSlice);
+            centreCurveVolume(:,:,iSlice) = curveSlice | loopSlice;
 
             curveIndexList = find(curveSlice);
 
@@ -564,22 +580,34 @@ for iSlice = 1:smallVolumeSize(3)
 
             [curveSubscriptArray(:,1), curveSubscriptArray(:,2)] = ...
                ind2sub(smallVolumeSize(1:2), curveIndexList);
-
-           plot3(curveSubscriptArray(:,1), curveSubscriptArray(:,2),...
-                iSlice*ones(nIndex,1), 'b.'); 
+           
+           % Even with precision correction it's possible holes exist
+           if length(unique(curveSubscriptArray(:,2))) ~= max(curveSubscriptArray(:,2))
+               % Could also be that real holes in X exist, but wont be
+               % flagged here.
+               
+               % If not at least one point per slice, interpolate this slice.
+               %%% Note any found points will not be moved. 
+               missingSlices(iSlice) = 1;
+               %figure; plot(curveSubscriptArray(:,1), curveSubscriptArray(:,2),'.')
+           end    
         else
            %Slice cannot be calculated, just add exisiting loop 
-           centreCurveVolume(:,:,iSlice) = loopVolume(:,:,iSlice);
+           centreCurveVolume(:,:,iSlice) = loopSlice;
            
            missingSlices(iSlice) = 1;
         end
     end
 end
 
+% basePlaneOnSlice = zeros(smallVolumeSize(3),1);
+% for iSlice = 1:smallVolumeSize(3)
+%     basePlaneOnSlice(iSlice) = sum(centreCurveVolume(:,1,iSlice));
+% end
+% figure; plot(basePlaneOnSlice)
+
 %% Interpolate missing slices.
 missingSliceIndexList = find(missingSlices);
-
-sliceSteps = find(diff(missingSliceIndexList) > 1);
 
 nMissingSlices = length(missingSliceIndexList);
 
@@ -589,17 +617,22 @@ yToInterpolate = zeros(nMissingSlices, smallVolumeSize(2))*NaN;
 zToInterpolate = zeros(nMissingSlices, smallVolumeSize(2))*NaN;
 
 for iSlice = 1:nMissingSlices
-    % Find y position of loop on slice   
-    tempIndexList = find(loopVolume(:,:,missingSliceIndexList(iSlice)));
+    % Find exisiting points on curve (will include loop).
+    tempIndexList = find(centreCurveVolume(:,:,missingSliceIndexList(iSlice)));
 
     nIndex = length(tempIndexList); tempSubscriptArray = zeros(nIndex, 2);
 
     [tempSubscriptArray(:,1), tempSubscriptArray(:,2)] = ind2sub(smallVolumeSize(1:2), tempIndexList);
     
-    % Only interpolate up to highest Y on loop.
-    yToInterpolate(iSlice,1:max(tempSubscriptArray(:,2))) = 1:max(tempSubscriptArray(:,2));
+    % Only interpolate up to highest Y on loop, and remove exisiting.
+    temp = 1:max(tempSubscriptArray(:,2));
+    
+    temp(unique(tempSubscriptArray(:,2))) = [];
+
+    yToInterpolate(iSlice,temp) = temp;
     
     zToInterpolate(iSlice,:) = missingSliceIndexList(iSlice);
+    
 end
 
 % Remove excess interpolation points.
@@ -617,6 +650,12 @@ nIndex = length(curveIndexList); curveSubscriptArray = zeros(nIndex, 3);
 xInterpolated = round(griddata(curveSubscriptArray(:,2), curveSubscriptArray(:,3), curveSubscriptArray(:,1), ...
     yToInterpolate, zToInterpolate, 'linear'));
 
+% Add interpolated points to curve
+tempIndex = sub2ind(smallVolumeSize, xInterpolated, yToInterpolate, zToInterpolate);
+
+% Delete this and fix problem.
+%centreCurveVolume(tempIndex(~isnan(tempIndex))) = 1;
+
 % Test plot.
 figure; hold on; axis equal; set(gca, 'Clipping', 'off')
 
@@ -633,12 +672,6 @@ plot3(loopSubscriptArray(:,1), loopSubscriptArray(:,2),...
 plot3(curveSubscriptArray(:,1), curveSubscriptArray(:,2), curveSubscriptArray(:,3), 'b.')
 
 plot3(xInterpolated, yToInterpolate, zToInterpolate, 'g.')
-
-
-% Add interpolated points to curve
-tempIndex = sub2ind(smallVolumeSize, xInterpolated, yToInterpolate, zToInterpolate);
-
-centreCurveVolume(tempIndex) = 1;
 
 
 
@@ -671,7 +704,7 @@ for iSlice = 1:smallVolumeSize(3)
             elseif volumeColumn(jPoint) == ENDOSPERM_INDEX || volumeColumn(jPoint) == GERM_INDEX
                 %Stop once non edge endosperm or germ reached
                
-               plot3(tempSubscriptArray(maxIndex,1), tempSubscriptArray(maxIndex,2)+jPoint-1, iSlice, 'mx')
+               %plot3(tempSubscriptArray(maxIndex,1), tempSubscriptArray(maxIndex,2)+jPoint-1, iSlice, 'mx')
                
                break
             end
@@ -680,23 +713,139 @@ for iSlice = 1:smallVolumeSize(3)
 end
 
 
-%% Check it is closed
-closureTest = convn(centreCurveVolume, STREL_18_CONNECTED.Neighborhood);
+%% Check curve is 16 closed - on faces and edges
+%%% Note diagonal holes in curve not closed - will allow [1 1; 1 0] on [0 1; 1 1]
 
-figure; hist(closureTest(closureTest ~= 0));
+%Close edges in 2D along each Y slice
+for iSlice = 1:smallVolumeSize(3)
+   
+    % Check if exisiting crease points of crease on slice.
+    tempIndexList = find(centreCurveVolume(:,:,iSlice));
 
-%Test each point for 16 closure, if not, draw line to adjacent point on x
-%slice
+    if ~isempty(tempIndexList)
+        nIndex = length(tempIndexList); tempSubscriptArray = zeros(nIndex, 2);
+        
+        [tempSubscriptArray(:,1), tempSubscriptArray(:,2)] = ind2sub(smallVolumeSize(1:2), tempIndexList);
+        
+        if length(unique(tempSubscriptArray(:,2))) ~= max(tempSubscriptArray(:,2))
+           % Should not occur afer interpolation...
+            
+           error('Missing Y values on slice') 
+           %figure; plot(tempSubscriptArray(:,1), tempSubscriptArray(:,2),'.')
+        end
 
-%%% Test how is geodesic connectivity calculated
+        % Step up by rows.
+        for jRow = 1:(max(tempSubscriptArray(:,2))-1)
+        
+            % Get subscripts on row
+            xSubscriptList = find(centreCurveVolume(:,jRow,iSlice));
 
-% temp = zeros(3,3,3);
-% temp(2, 2, 2) = 1;
-% temp()
+            % Test lateral conenctivity.
+            if length(xSubscriptList) > 1
+                if max(diff(xSubscriptList)) > 1 
+                    error('Lateral connectivity broken.')
+                end    
+            end
+                
+            numberAbove = zeros(length(xSubscriptList),1);
+            
+            numberDiagonal = zeros(length(xSubscriptList),2);
+            
+            % Step along up subscripts checking if one has point above.
+            for kStep = 1:length(xSubscriptList)
+                
+                if centreCurveVolume(xSubscriptList(kStep),jRow+1,iSlice)
+                    
+                    numberAbove(kStep) = 1;
+                    
+                    numberDiagonal(kStep,:) = NaN;
+                else
+                    %Check for diagonals
+                    if centreCurveVolume(xSubscriptList(kStep)-1,jRow+1,iSlice)
+                        numberDiagonal(kStep,1) = -1;
+                    end
+                    
+                    if centreCurveVolume(xSubscriptList(kStep)+1,jRow+1,iSlice)
+                        numberDiagonal(kStep,2) = 1;
+                    end
+                end
+            end
+            
+            % If none with one above, need to fill diagonls
+            if sum(numberAbove) == 0 
+                
+               if sum( abs(numberDiagonal(:))) 
+                   
+                   % If just one diagonal can do mathmatically.
+                   if sum( abs(numberDiagonal(:))) == 1
+                       
+                       % Check which subscript diagonal belongs to.
+                       for kStep = 1:length(xSubscriptList)
+                           
+                          if sum( abs(numberDiagonal(kStep,:)))
+                              centreCurveVolume(xSubscriptList(kStep)+sum(numberDiagonal(kStep,:)), ...
+                                  jRow,iSlice) = 1;
+                              
+                              plot3(xSubscriptList(kStep)+sum(numberDiagonal(kStep,:)), ...
+                                  jRow, iSlice, 'k.')
+                          end
+                       end
+                       
+                   else
+                      % This should only occur before a branch, 
+                      % which would usually be flagged in next step. 
+                       
+                      error('Need to implement picking') 
+                   end
+                   
+               else
+                  % No diagonal connection to slice above, can occur on interpolated slices
+                  
+                  % Get subscripts on row above
+                  xAboveList = find(centreCurveVolume(:,jRow+1,iSlice));
+
+                  % Find closest subscripts on each row.
+                  distance2Above = zeros(length(xSubscriptList),2);
+                  
+                  for kStep = 1:length(xSubscriptList)
+                      
+                      [distance2Above(kStep,1), distance2Above(kStep,2)] = ...
+                          min( abs(xSubscriptList(kStep)-xAboveList ));
+                  end
+                  
+                  [~, minIndex] = min(distance2Above(:,1));
+                  
+                  % Get points to fill.  
+                  if xSubscriptList(minIndex) > xAboveList(distance2Above(minIndex,2))
+                      
+                      toFill = xAboveList(distance2Above(minIndex,2)):xSubscriptList(minIndex);
+                  else
+                      
+                      toFill = xSubscriptList(minIndex):xAboveList(distance2Above(minIndex,2));
+                  end
+                  
+                  if length(xAboveList) > 1 | length(xSubscriptList) > 1
+                      pause(1);
+                  end
+                  
+                  % Fill points on row
+                  centreCurveVolume(toFill,jRow,iSlice) = 1;
+                              
+                  plot3(toFill, jRow, iSlice, 'r.')
+               end
+            end
+        end
+    end
+end
+    
+%%% Test how is geodesic connectivity calculated - its 26
+%temp = zeros(3,3,3,'logical');
+%temp(1, :, 1) = 1;
+%temp(1, 1, 1) = 1; temp(2, 2, 1) = 1; temp(3, 3, 1) = 1;
+%temp(1, 1, 1) = 1; temp(2, 2, 2) = 1; temp(3, 3, 3) = 1;
+%bwdistgeodesic(temp, 1,'quasi-euclidean')
 
 %%% Add slight cut above end
-
-
 
 %% Test geodesic embedding for unwrapping.
 % Problem can occur if there are unlinked vertices, check by running fast marching once.
