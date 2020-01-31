@@ -389,14 +389,11 @@ dMap = distanceFromTop + distanceFromBottom;
 clear distanceFromTop, clear distanceFromBottom
 
 % Round to lower precision to prevent floating point errors.
-%%% Note, changed from 8 to 32 as loop doesn't reach end,
-%%% but higher causes some external points to be included. 
-%%% 32 closes but allows some floaters
-dMap = round(dMap * 2^5)/2^5;
+%%% Note, changed from 8 to 64 as loop doesn't reach end,
+%%% Causes some floaters, but no gaps. Not guaranteed to work for all...
+dMap = round(dMap * 64)/64;
 
 dMap(isnan(dMap)) = Inf;
-
-
 
 % Reginal minima should define connection.
 loopVolume = imregionalmin(dMap);
@@ -404,8 +401,6 @@ loopVolume = imregionalmin(dMap);
 clear dMap
 
 %% Take top of connected curve.
-%%% Don't need to do clean above.
-
 coordinatesOfLoop = zeros(smallVolumeSize(3)*2,3)*NaN;
 
 coordinatesOfLoop(1,:) = [xTopOfLoop, yTopOfLoop, zTopOfLoop];
@@ -482,28 +477,22 @@ loopVolume(tempIndexList) = 1;
 loopIndexList = find(loopVolume);
 
 nIndex = length(loopIndexList); loopSubscriptArray = zeros(nIndex, 3);
+
+[loopSubscriptArray(:,1), loopSubscriptArray(:,2), loopSubscriptArray(:,3)] = ...
+    ind2sub(smallVolumeSize, loopIndexList);
+
 %% Now find centre-curve by slice.
 
 centreCurveVolume = zeros(smallVolumeSize, 'logical');
 
 % Transform distance from grain so centrelines are emphasized.
-distanceNearGrain = distanceFromGrain;
+distanceNearGrain = distanceFromGrain.^2;
 
 distanceNearGrain(grainMask) = 0;
 
-distanceNearGrain = -log(distanceNearGrain);
-
-distanceNearGrain = distanceNearGrain - min(distanceNearGrain(:));
-
-distanceNearGrain(grainMask) = Inf;
-
-basePlane = zeros(smallVolumeSize(1:2), 'logical');
-
-basePlane(:,1) = 1;
-% Note that using single point frequently causes multiple lines to be drawn.
-%basePlane(round(smallVolumeSize(1)/2),1) = 1;
-
 missingSlices = zeros(smallVolumeSize(3),1);
+
+startIndex = sub2ind(smallVolumeSize, round(smallVolumeSize(1)/2), 1);
 
 for iSlice = 1:smallVolumeSize(3)
    
@@ -511,94 +500,130 @@ for iSlice = 1:smallVolumeSize(3)
     indexList = find(loopVolume(:,:,iSlice));
     
     if ~isempty(indexList)
+        % Fast marching does a good job of finding good cut through grain.
+        % But can jump a bit between slices if morphology shifts thinnest
+        % crossing and sometimes is confused by diagonal openings.
+        % Fast marching takes a long time if there are closures.
         
-        loopSlice = loopVolume(:,:,iSlice);
-        
-        % Calculate distance maps to find minimum path from top of crease to base plane.
-        distanceFromCrease = graydist(distanceNearGrain(:,:,iSlice), loopSlice, 'quasi-euclidean');
-        
-        distanceFromBase = graydist(distanceNearGrain(:,:,iSlice), basePlane, 'quasi-euclidean');
-        
-        dMap = distanceFromCrease + distanceFromBase;
-        
-        %%% Need to be careful setting precision to balance floaters with holes.
-        %%% Lower value reduces floaters but can cause slices not to be connected at top or bottom. 
-        %%% Using full base plane or point also influences best precision.
-        dMap = round(dMap * 2^5)/2^5;
-        
-        dMap(isnan(dMap)) = Inf;
-        
-        % Regional minima is shortest path
-        curveSlice = imregionalmin(dMap);
+        % Test that base and loop points are in same region.
+        tempCC = bwconncomp(~grainMask(:,:,iSlice), 4);
 
-        % If regions are not linked, everything will be Inf
-        curveSlice(curveSlice & isinf(dMap)) = 0;
+        tempStats = regionprops(tempCC, 'PixelIdxList'); 
         
-        if iSlice == 21
-            %temp = curveSlice + grainMask(:,:,iSlice);
-            %figure; imshow(temp)
+        sameArea = 0;
+        
+        for jRegion = 1:length(tempStats)
+            indexInside = length(find(tempStats(jRegion).PixelIdxList == startIndex));
+            
+            % Can just test single point on loop.
+            curveInside = length(find(tempStats(jRegion).PixelIdxList == indexList(1)));
+            
+            if indexInside && curveInside; sameArea = 1; end
         end
 
-        % Test that line links top and bottom.
-        planeInCurve = sum(curveSlice(:) & basePlane(:));
-        
-        loopInCurve = sum(curveSlice(:) & loopSlice(:));
+        if sameArea
+    
+            % Get points on loop.
+            nIndex = length(indexList); tempSubscriptArray = zeros(nIndex, 2);
 
-        % Using plane helps, but occasionally double connections are made. 
-        % Test for this and they will be interpolated if occuring.
-        
-        if planeInCurve == 1 & loopInCurve
-            % Floaters and breaks can still occur (!)
-            % Check top and bottom are in main regions.
-            tempCC = bwconncomp(curveSlice, 8);
+            [tempSubscriptArray(:,1), tempSubscriptArray(:,2)] = ind2sub(smallVolumeSize(1:2), indexList);
 
-            tempStats = regionprops(tempCC, 'PixelIdxList');
+            % Just use highest point
+            if nIndex > 1
+                [~, maxInd] = max(tempSubscriptArray(:,2));
 
-            nRegions = length(tempStats);
-            
-            % Remove region from curve slice if top/bottom not included
-            for jRegion = 1:nRegions
-                if sum(loopSlice(tempStats(jRegion).PixelIdxList)) == 0 && ...
-                    sum(basePlane(tempStats(jRegion).PixelIdxList)) == 0
-                    
-                    curveSlice(tempStats(jRegion).PixelIdxList) = 0; 
-                    
-                    %figure; imshow(curveSlice);
+                tempSubscriptArray = tempSubscriptArray(maxInd,:);
+            end
+
+            % Calculate shortest path from centre of base plane to loop.
+            distanceFromBase = msfm(double(distanceNearGrain(:,:,iSlice)*1000+0.001), [round(smallVolumeSize(1)/2); 1]); 
+
+            curveLine = shortestpath(distanceFromBase,tempSubscriptArray',...
+                [round(smallVolumeSize(1)/2); 1], 0.5);
+
+            %Use Bresenham algorithm to take all voxels touched by line.
+            curveLineFull = zeros(size(curveLine,1)*4,2)*NaN;
+
+            tempIndex = 1;
+
+            for jStep = 1:length(curveLine)-1
+
+                % Check distance is small.
+                if sqrt((curveLine(jStep+1,1)-curveLine(jStep,1))^2 + ...
+                        (curveLine(jStep+1,2)-curveLine(jStep,2))^2) < 1
+
+                    [tempX, tempY] = bresenham(curveLine(jStep,1),curveLine(jStep,2),...
+                        curveLine(jStep+1,1),curveLine(jStep+1,2));
+
+                    curveLineFull(tempIndex:tempIndex+length(tempX)-1,:) = [tempX, tempY];
+
+                    tempIndex = tempIndex + length(tempX);
+                else
+                   % Not expecting large steps to occur
+                   error('Large distance!'); 
                 end
             end
-            
-            % Curves can sometimes be thick, so now using thinning
-            % Seems more noticable when single point on base plane used.
-            curveSlice = bwmorph(curveSlice, 'thin', inf);
-            
-            %Add slice of curve and loop to curve volume
-            centreCurveVolume(:,:,iSlice) = curveSlice | loopSlice;
 
-            curveIndexList = find(curveSlice);
+            curveLineFull(isnan(curveLineFull(:,1)), :) = [];
 
-            nIndex = length(curveIndexList); curveSubscriptArray = zeros(nIndex, 3);
+            curveLineFull = unique(curveLineFull, 'rows');
 
-            [curveSubscriptArray(:,1), curveSubscriptArray(:,2)] = ...
-               ind2sub(smallVolumeSize(1:2), curveIndexList);
-           
-           % Even with precision correction it's possible holes exist
-           if length(unique(curveSubscriptArray(:,2))) ~= max(curveSubscriptArray(:,2))
-               % Could also be that real holes in X exist, but wont be
-               % flagged here.
-               
-               % If not at least one point per slice, interpolate this slice.
-               %%% Note any found points will not be moved. 
+            %Voxelize line.
+            curveSlice = zeros(smallVolumeSize(1:2));
+
+            tempIndexList = sub2ind(smallVolumeSize(1:2), curveLineFull(:,1), curveLineFull(:,2));
+
+            curveSlice(tempIndexList) = 1;
+
+            tempMask = grainMask(:,:,iSlice);
+
+            if sum(tempMask(tempIndexList))
+    %             figure; imshow(grainMask(:,:,iSlice));
+    %             hold on; plot(curveLine(:,2), curveLine(:,1),'r')
+    %             plot(tempSubscriptArray(2), tempSubscriptArray(1),'gx')
+    %             plot(curveLineFull(:,2), curveLineFull(:,1),'m.')
+            end
+
+            % Removed test for multiple connections to base plane, fast marching prevents.
+
+            % Test that line links top and bottom.
+            if curveSlice(round(smallVolumeSize(1)/2),1) && ...
+                    curveSlice(tempSubscriptArray(1), tempSubscriptArray(2))
+                % Removed thining and multi-part removal code, fast marching prevents.
+
+                % Add slice of curve and loop to curve volume.
+                centreCurveVolume(:,:,iSlice) = curveSlice | loopSlice;
+
+                % Vertical continuity test removed, fast marching should fix.
+            else
+               % Start and end don't conenect, just add exisiting loop. 
+               centreCurveVolume(:,:,iSlice) = loopSlice;
+
                missingSlices(iSlice) = 1;
-               %figure; plot(curveSubscriptArray(:,1), curveSubscriptArray(:,2),'.')
-           end    
+            end
         else
-           %Slice cannot be calculated, just add exisiting loop 
-           centreCurveVolume(:,:,iSlice) = loopSlice;
-           
-           missingSlices(iSlice) = 1;
+            % Slice should be interpolated, just add exisiting loop. 
+            centreCurveVolume(:,:,iSlice) = loopSlice;
+
+            missingSlices(iSlice) = 1;
         end
     end
 end
+
+% Check ends of curve are closed by testing if identical to loop
+% if all(centreCurveVolume(:,:,zTopOfLoop) == loopVolume(:,:,zTopOfLoop))
+%     indexList = find(loopVolume(:,:,zTopOfLoop));
+%     
+%     nIndex = length(indexList); tempSubscriptArray = zeros(nIndex, 2);
+% 
+%     [tempSubscriptArray(:,1), tempSubscriptArray(:,2)] = ind2sub(smallVolumeSize(1:2), indexList);
+% 
+%     %Use lowest point
+%     [~, minInd] = min(tempSubscriptArray(:,2));
+%     
+%     tempSubscriptArray = tempSubscriptArray(minInd,:);
+% end
+
 
 % basePlaneOnSlice = zeros(smallVolumeSize(3),1);
 % for iSlice = 1:smallVolumeSize(3)
@@ -607,9 +632,13 @@ end
 % figure; plot(basePlaneOnSlice)
 
 %% Interpolate missing slices.
+% Fast marching removes need for interpolation.
+
 missingSliceIndexList = find(missingSlices);
 
-nMissingSlices = length(missingSliceIndexList);
+nMissingSlices = length(missingSliceIndexList)
+
+warning('Why are so many full slices being interpoalted?')
 
 % Get points to interpolate.
 yToInterpolate = zeros(nMissingSlices, smallVolumeSize(2))*NaN;
@@ -716,6 +745,8 @@ end
 %% Check curve is 16 closed - on faces and edges
 %%% Note diagonal holes in curve not closed - will allow [1 1; 1 0] on [0 1; 1 1]
 
+warning('Test vertical connectivity test.')
+
 %Close edges in 2D along each Y slice
 for iSlice = 1:smallVolumeSize(3)
    
@@ -743,6 +774,8 @@ for iSlice = 1:smallVolumeSize(3)
             % Test lateral conenctivity.
             if length(xSubscriptList) > 1
                 if max(diff(xSubscriptList)) > 1 
+                    % This could occur if there is a loop back.
+                    
                     error('Lateral connectivity broken.')
                 end    
             end
@@ -795,7 +828,7 @@ for iSlice = 1:smallVolumeSize(3)
                       % This should only occur before a branch, 
                       % which would usually be flagged in next step. 
                        
-                      error('Need to implement picking') 
+                      error('Picking means a branch has occured') 
                    end
                    
                else
