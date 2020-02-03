@@ -293,6 +293,10 @@ smallGrainExterior = grainExterior(xBoundsNew(1):xBoundsNew(2), ...
 
 smallVolumeSize = size(smallGrainVolume);
 
+warning('Orignal volumes cleared')
+
+clear grainVolumeAligned, clear grainExterior
+
 
 
 % Find loop start on top of grain. Firstly step in from top of grain
@@ -332,10 +336,6 @@ yBottomOfLoop = min(sliceSubscriptArray(tempIndex,2))-1;
 
 
 % Calc distance map from plane underneath grain.
-%basePlaneVolume = zeros(smallVolumeSize, 'logical');
-
-%basePlaneVolume(:,1,:) = 1;
-
 % Make mask image for grain.
 grainMask = logical(smallGrainVolume);
 
@@ -409,7 +409,7 @@ coordinatesOfLoop(1,:) = [xTopOfLoop, yTopOfLoop, zTopOfLoop];
 
 testX(14) = []; testY(14) = []; testZ(14) = [];
 
-roughXCentre = (xTopOfLoop+xBottomOfLoop)/2;
+roughXCentre = round((xTopOfLoop+xBottomOfLoop)/2);
 
 distanceFromEnd = bwdistgeodesic(loopVolume, sub2ind(smallVolumeSize, ...
   xBottomOfLoop, yBottomOfLoop, zBottomOfLoop), 'quasi-euclidean');
@@ -465,7 +465,7 @@ end
 
 coordinatesOfLoop(isnan(coordinatesOfLoop(:,1)),:) = [];
 
-clear distanceThroughLoop;
+clear distanceFromEnd
 
 %Clear loop and add replace with thin values.
 loopVolume(:) = 0;
@@ -481,6 +481,78 @@ nIndex = length(loopIndexList); loopSubscriptArray = zeros(nIndex, 3);
 [loopSubscriptArray(:,1), loopSubscriptArray(:,2), loopSubscriptArray(:,3)] = ...
     ind2sub(smallVolumeSize, loopIndexList);
 
+%% Test 3D curve catch
+
+%Take new distance maps
+tic
+distanceFromLoop = bwdistgeodesic(~grainMask, loopVolume, 'quasi-euclidean');
+toc
+
+baseLineVolume = zeros(smallVolumeSize, 'logical');
+
+baseLineVolume(roughXCentre,1,zTopOfLoop:zBottomOfLoop) = 1;
+
+tic
+baseLineVolume = bwdistgeodesic(~grainMask, baseLineVolume, 'quasi-euclidean');
+toc
+
+dMap = distanceFromLoop + baseLineVolume;
+
+clear baseLineVolume, clear distanceFromLoop, 
+
+%dMap = round(dMap * 64)/64;
+
+dMap(isnan(dMap)) = Inf;
+
+dMap(grainMask) = Inf;
+
+%dMap(isinf(dMap)) = max(dMap(~isinf(dMap)));
+
+% Place minima at bottom of plane, on top and bottom columns and in crease.
+% Could try seeding just one of top and bottom.
+
+maskIm = loopVolume(:,:,500)*0;
+%maskIm(roughXCentre,1) = 1;
+maskIm(1,1:10) = 1; maskIm(end,1:10) = 1;
+
+dMapS = imreconstruct(dMap(:,:,500), single(maskIm));
+
+% Also makes broken line - high number gives less connected region
+curveVolume = imextendedmin(dMap, 10);
+
+%curveVolume = imfill(dMap(:,:,500));
+
+%%% May be useful to connect up if thinned. 
+curveVolume = grayconnected(dMap(:,:,500),roughXCentre,1,1);
+
+% Reginal minima should define connection.
+%%% I thought this would just take one line, but takes several. Maybe based on discitization?
+%curveVolume = imregionalmin(dMapS);
+
+%%% May be able to seed region growing with these minima?
+
+%curveVolume = watershed(dMapS);
+
+%clear dMap
+
+
+curveIndexList = find(curveVolume);
+
+nIndex = length(curveIndexList); curveSubscriptArray = zeros(nIndex, 3);
+
+[curveSubscriptArray(:,1), curveSubscriptArray(:,2), curveSubscriptArray(:,3)] = ...
+    ind2sub(smallVolumeSize, curveIndexList);
+
+figure; hold on; axis equal; set(gca, 'Clipping', 'off')
+
+line(xTopOfLoop*[1 1], [1 yTopOfLoop], zTopOfLoop*[1 1])
+
+line(xBottomOfLoop*[1 1], [1 yBottomOfLoop], zBottomOfLoop*[1 1])
+
+plot3(loopSubscriptArray(:,1), loopSubscriptArray(:,2),...
+   loopSubscriptArray(:,3), 'r.'); 
+
+plot3(curveSubscriptArray(:,1), curveSubscriptArray(:,2), curveSubscriptArray(:,3), 'b.')
 %% Now find centre-curve by slice.
 
 centreCurveVolume = zeros(smallVolumeSize, 'logical');
