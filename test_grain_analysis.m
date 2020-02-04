@@ -411,8 +411,10 @@ testX(14) = []; testY(14) = []; testZ(14) = [];
 
 roughXCentre = round((xTopOfLoop+xBottomOfLoop)/2);
 
+tic
 distanceFromEnd = bwdistgeodesic(loopVolume, sub2ind(smallVolumeSize, ...
   xBottomOfLoop, yBottomOfLoop, zBottomOfLoop), 'quasi-euclidean');
+toc
 
 % Step along loop towards end.
 for iStep = 2:smallVolumeSize(3)*2
@@ -483,7 +485,7 @@ nIndex = length(loopIndexList); loopSubscriptArray = zeros(nIndex, 3);
 
 %% Test 3D curve catch
 
-%Take new distance maps
+%Take new distance maps - unweighted, but could grey weight as in loop
 tic
 distanceFromLoop = bwdistgeodesic(~grainMask, loopVolume, 'quasi-euclidean');
 toc
@@ -506,32 +508,43 @@ dMap(isnan(dMap)) = Inf;
 
 dMap(grainMask) = Inf;
 
-%dMap(isinf(dMap)) = max(dMap(~isinf(dMap)));
 
-% Place minima at bottom of plane, on top and bottom columns and in crease.
-% Could try seeding just one of top and bottom.
 
-maskIm = loopVolume(:,:,500)*0;
-%maskIm(roughXCentre,1) = 1;
-maskIm(1,1:10) = 1; maskIm(end,1:10) = 1;
+%% Place centreline at bottom of loop volume.
+loopVolume(roughXCentre,1,zTopOfLoop:zBottomOfLoop) = 1;
 
-dMapS = imreconstruct(dMap(:,:,500), single(maskIm));
+curveVolume = zeros(smallVolumeSize);
 
-% Also makes broken line - high number gives less connected region
-curveVolume = imextendedmin(dMap, 10);
+% Run while loop volume has untested points
+while sum(loopVolume(:) & ~curveVolume(:))
+    sum(loopVolume(:) & ~curveVolume(:))
+    % Get indices to test at.
+    indexList = find(loopVolume(:) & ~curveVolume(:));
 
-%curveVolume = imfill(dMap(:,:,500));
+    [pointX, pointY, pointZ] = ind2sub(smallVolumeSize, indexList(1));
+
+    tic
+    curveVolume = curveVolume + regGrow().segment(dMap,[pointX, pointY, pointZ],1);
+    toc
+end
+
+%Reset loop volume.
+loopVolume(roughXCentre,1,zTopOfLoop:zBottomOfLoop) = 0;
+
+curveVolume(curveVolume > 1) = 1;
 
 %%% May be useful to connect up if thinned. 
-curveVolume = grayconnected(dMap(:,:,500),roughXCentre,1,1);
+%curveVolume = regGrow().segment(dMap(:,:,500),[roughXCentre 1],1);
+%curveVolume = grayconnected(dMap(:,:,500),roughXCentre,1,1);
+
+%figure; imshow(curveVolume)
+
+% Also makes broken line - high number gives less connected region
+%curveVolume = imextendedmin(dMap, 10);
 
 % Reginal minima should define connection.
-%%% I thought this would just take one line, but takes several. Maybe based on discitization?
+%%% I thought this would just make one line, but makes several. Maybe based on discitization?
 %curveVolume = imregionalmin(dMapS);
-
-%%% May be able to seed region growing with these minima?
-
-%curveVolume = watershed(dMapS);
 
 %clear dMap
 
