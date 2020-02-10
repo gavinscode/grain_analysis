@@ -65,6 +65,8 @@ M4 = make_transformation_matrix(volumeSize/2 - grainCenter);
 
 grainVolumeAligned = uint8(affine_transform_full(single(grainVolume), M1*M2*M3*M4, 5));
 
+%%% Note small holes appear after affine transform, close fixes these. 
+%%% Probably bug with nearest neighbour interp I added to affine transform c file
 grainVolumeAligned = imclose(grainVolumeAligned, STREL_6_CONNECTED);
 
 % Get exterior voxles
@@ -632,25 +634,7 @@ for iSlice = [zTopOfLoop:5:(zBottomOfLoop-5+1) zBottomOfLoop]
     end
 end
 
-clear distanceFromGrain
-
-% Extend highest point on curve up to top of volume.
-% for iSlice = 1:smallVolumeSize(3)
-%     % Find y positions of curve on slice.   
-%     tempIndexList = find(centreCurveVolume(:,:,iSlice));
-% 
-%     if ~isempty(tempIndexList)
-%         nIndex = length(tempIndexList); tempSubscriptArray = zeros(nIndex, 2);
-% 
-%         [tempSubscriptArray(:,1), tempSubscriptArray(:,2)] = ind2sub(smallVolumeSize(1:2), tempIndexList);
-%         
-%         [~, maxIndex] = max(tempSubscriptArray(:,2));
-%         
-%         if tempSubscriptArray(maxIndex,2) < smallVolumeSize(2)
-%             centreCurveVolume(tempSubscriptArray(maxIndex,1), tempSubscriptArray(maxIndex,2):end, iSlice) = 1;
-%         end
-%     end
-% end
+clear distanceFromGrain, clear loopVolume
 
 %% Interpolate form using lofted b-spline.
 curveIndexList = find(centreCurveVolume);
@@ -698,11 +682,14 @@ for iSlice = 1:maxZLength
 end
 
 % Note - this is incredibly slow!
+%%% This can be solved by doing sequentially for small sequences and then recombining.
+%%% Do say, for 1-50 and 50-100 then combine. Should test 25-75 produces same result in overlap.
+warning('Not using all points in nrbloft')
 tic
 curveNrb = nrbloft_nan(xArray(:,1:10:end), yArray(:,1:10:end), zArray(:,1:10:end), 2);
 toc
 
-%% Put interpoalted values into curve volume.
+%% Put interpolated values into curve volume.
 %zToInterp = zBottomOfLoop-zTopOfLoop+1;
 zToInterp = max(max(zArray(:,1:10:end)))-zTopOfLoop+1;
 
@@ -719,23 +706,139 @@ curveZ = p(3,:,:); curveZ = round(curveZ(:));
 
 curveX = curveX(indList); curveY = curveY(indList); curveZ = curveZ(indList);
 
-tempIndexList = sub2ind(smallVolumeSize, curveX, curveY, curveZ);
+% Find max Y for each Z value
+maxYValues = zeros(smallVolumeSize(3),1);
 
-centreCurveVolume(tempIndexList) = 1;
+for iSlice = zTopOfLoop:zToInterp %zBottomOfLoop
+    
+   inds = find(curveZ == iSlice);
+   
+   if ~isempty(inds)
+       
+       maxYValues(iSlice) = max(curveY(inds));
+       
+       % May be duplicate Y max points with different X values. 
+       % Not a big problem as each will be filled up until the highest X in following loop.
+       
+   else
+      error('No Y value') 
+   end
+end
 
-%%% Could add something like bresenham algo that connects points going 
-%%% up and along curve?
+% Fill up to max X on each point.
+centreCurveVolume(:) = 0;
 
-%%% Or try to test which side of curve points are on, and then get surface.
-%%% Idea - fill volume up to rounded x value on each y - z pair (have to cut top layer of Z)
-%%% Then grow other side of volume and get front, should be connected!
+for iPoint = 1:length(indList)
+    
+    centreCurveVolume(1:curveX(iPoint), curveY(iPoint), curveZ(iPoint)) = 1;
+    
+    %If max y for a given slice, fill up as well
+    if curveY(iPoint) == maxYValues(curveZ(iPoint))
+        
+       for jRow = (maxYValues(curveZ(iPoint))+1):smallVolumeSize(2)
+           
+          centreCurveVolume(1:curveX(iPoint), jRow, curveZ(iPoint)) = 1;
+           
+       end
+    end
+end
 
-warning('Add good curve front finding procedure above.')
+% Copy ends along volume.
+for iSlice = 1:zTopOfLoop
+    
+    centreCurveVolume(:,:,iSlice) = centreCurveVolume(:,:,zTopOfLoop);
+end
 
-% Dilate for now, best guarantee of connectivity
-%centreCurveVolumeTemp = imclose(centreCurveVolumeTemp, STREL_26_CONNECTED);
+for iSlice = zToInterp:smallVolumeSize(3)
+    
+    centreCurveVolume(:,:,iSlice) = centreCurveVolume(:,:,zToInterp);
+end
 
-centreCurveVolume = imdilate(centreCurveVolume, STREL_18_CONNECTED);
+% Take difference between volume erode and volume - should be continous surface
+centreCurveVolume = centreCurveVolume - imerode(centreCurveVolume, STREL_18_CONNECTED);
+
+% Remove ends from volume.
+centreCurveVolume(:,:,1:(zTopOfLoop-1)) = 0;
+
+centreCurveVolume(:,:,(zToInterp+1):smallVolumeSize(3)) = 0;
+
+% Remove points above curve from volume
+for iSlice = zTopOfLoop:zToInterp
+    
+   for jRow = (maxYValues(iSlice)+1):smallVolumeSize(2)
+
+      centreCurveVolume(:, jRow, iSlice) = 0;
+
+   end
+end
+
+
+%% Cut up from centre line and ends 
+%Extend curve to include front and end of grain.
+
+for iSlice = 1:zTopOfLoop
+    %Copy end of loop if border volume is not empty
+    if ~isempty( find( smallGrainExterior(:,:,iSlice), 1))
+        
+        centreCurveVolume(:,:,iSlice) = centreCurveVolume(:,:,zTopOfLoop);
+    end
+end
+
+for iSlice = zToInterp:smallVolumeSize(3)
+    if ~isempty( find( smallGrainExterior(:,:,iSlice), 1))
+        
+        centreCurveVolume(:,:,iSlice) = centreCurveVolume(:,:,zToInterp);
+    end
+end
+
+for iSlice = 1:smallVolumeSize(3)
+    % Find y positions of curve on slice.   
+    tempIndexList = find(centreCurveVolume(:,:,iSlice));
+
+    if ~isempty(tempIndexList)
+        nIndex = length(tempIndexList); tempSubscriptArray = zeros(nIndex, 2);
+
+        [tempSubscriptArray(:,1), tempSubscriptArray(:,2)] = ind2sub(smallVolumeSize(1:2), tempIndexList);
+        
+        [~, maxIndexList] = max(tempSubscriptArray(:,2));
+        
+        maxIndexList = find(tempSubscriptArray(:,2) == tempSubscriptArray(maxIndexList,2));
+        
+        % If multiple max y values on one slice cut up from each to ensure connectivity.
+        
+        for jIndex = 1:length(maxIndexList)
+            % Get values in grain and edge volumes.
+            volumeColumn = smallGrainVolume(tempSubscriptArray(maxIndexList(jIndex),1), ...
+                (tempSubscriptArray(maxIndexList(jIndex),2)+1):end, iSlice);
+
+            exteriorColumn = smallGrainExterior(tempSubscriptArray(maxIndexList(jIndex),1), ...
+                (tempSubscriptArray(maxIndexList(jIndex),2)+1):end, iSlice);
+
+            %Step up column and add into curve volume if air or edge
+            for jPoint = 1:length(volumeColumn)
+
+                if volumeColumn(jPoint) == 0 || exteriorColumn(jPoint) 
+                    %|| volumeColumn(jPoint) == ALEURONE_INDEX
+
+                    centreCurveVolume(tempSubscriptArray(maxIndexList(jIndex),1), ...
+                        tempSubscriptArray(maxIndexList(jIndex),2)+jPoint, iSlice) = 1;
+
+%                     plot3(tempSubscriptArray(maxIndexList(jIndex),1),...
+%                         tempSubscriptArray(maxIndexList(jIndex),2)+jPoint, iSlice, 'k.')
+
+                % Stop once non- edge or air reach to prevent disconnection.
+                % Only do if in main portion of grain, borders should extend up
+                elseif iSlice > zTopOfLoop && iSlice < zToInterp
+                    %if volumeColumn(jPoint) == ENDOSPERM_INDEX || volumeColumn(jPoint) == GERM_INDEX
+                    
+                    % plot3(tempSubscriptArray(maxIndexList(jIndex),1), tempSubscriptArray(maxIndexList(jIndex),2)+jPoint-1, iSlice, 'mx')
+
+                   break
+                end
+            end
+        end
+    end
+end
 
 curveIndexList = find(centreCurveVolume);
 
@@ -744,7 +847,6 @@ nIndex = length(curveIndexList); curveSubscriptArray = zeros(nIndex, 3);
 [curveSubscriptArray(:,1), curveSubscriptArray(:,2), curveSubscriptArray(:,3)] = ...
     ind2sub(smallVolumeSize, curveIndexList);
 
-clear centreCurveVolume, clear loopVolume
 %% Test plot.
 figure; hold on; axis equal; set(gca, 'Clipping', 'off')
 
@@ -766,53 +868,6 @@ plot3(curveSubscriptArray(:,1), curveSubscriptArray(:,2), ...
 
 %plot3(curveX, curveY, curveZ, 'm.')
 
-%% Cut up from centre line before cleaning.
-% for iSlice = 1:smallVolumeSize(3)
-%     % Find y positions of curve on slice.   
-%     tempIndexList = find(centreCurveVolume(:,:,iSlice));
-% 
-%     if ~isempty(tempIndexList)
-%         nIndex = length(tempIndexList); tempSubscriptArray = zeros(nIndex, 2);
-% 
-%         [tempSubscriptArray(:,1), tempSubscriptArray(:,2)] = ind2sub(smallVolumeSize(1:2), tempIndexList);
-%         
-%         [~, maxIndex] = max(tempSubscriptArray(:,2));
-%         
-%         % Get values in grain and edge volumes.
-%         volumeColumn = smallGrainVolume(tempSubscriptArray(maxIndex,1), (tempSubscriptArray(maxIndex,2)+1):end, iSlice);
-%         
-%         exteriorColumn = smallGrainExterior(tempSubscriptArray(maxIndex,1), (tempSubscriptArray(maxIndex,2)+1):end, iSlice);
-%         
-%         %Step up column and add into curve volume if air or edge
-%         for jPoint = 1:length(volumeColumn)
-%             
-%             if volumeColumn(jPoint) == 0 || exteriorColumn(jPoint)
-%                 
-%                 centreCurveVolume(tempSubscriptArray(maxIndex,1), tempSubscriptArray(maxIndex,2)+jPoint, iSlice) = 1;
-%                 
-%                 plot3(tempSubscriptArray(maxIndex,1), tempSubscriptArray(maxIndex,2)+jPoint, iSlice, 'k.')
-% 
-%             elseif volumeColumn(jPoint) == ENDOSPERM_INDEX || volumeColumn(jPoint) == GERM_INDEX
-%                 %Stop once non edge endosperm or germ reached
-%                
-%                %plot3(tempSubscriptArray(maxIndex,1), tempSubscriptArray(maxIndex,2)+jPoint-1, iSlice, 'mx')
-%                
-%                break
-%             end
-%         end
-%     end
-% end
-    
-%%% Test how is geodesic connectivity calculated - its 26
-%temp = zeros(3,3,3,'logical');
-%temp(1, :, 1) = 1;
-%temp(1, 1, 1) = 1; temp(2, 2, 1) = 1; temp(3, 3, 1) = 1;
-%temp(1, 1, 1) = 1; temp(2, 2, 2) = 1; temp(3, 3, 3) = 1;
-%bwdistgeodesic(temp, 1,'quasi-euclidean')
-
-%%% Add slight cut above end
-warning('Add slight cut up at end')
-
 %% Place curve cut back into full volume
 % Correct subscripts back to original coordinates
 curveSubscriptArray(:,1) = curveSubscriptArray(:,1) + xBoundsNew(1) - 1;
@@ -823,33 +878,115 @@ curveSubscriptArray(:,3) = curveSubscriptArray(:,3) + zBoundsNew(1) - 1;
 
 tempIndexList = sub2ind(volumeSize, curveSubscriptArray(:,1), curveSubscriptArray(:,2), curveSubscriptArray(:,3));
 
-for iIndex = 1:length(tempIndexList)
-    
-    if grainExterior(tempIndexList(iIndex)) == 0
-        
-        grainExterior(tempIndexList(iIndex)) = 2;
-        
-    elseif grainExterior(tempIndexList(iIndex)) == 1
-        
-        grainExterior(tempIndexList(iIndex)) = 3;
-        
-    end
-end
-% To reverse:
-% grainExterior(grainExterior == 2) = 0;
-% grainExterior(grainExterior == 3) = 1;
+grainExterior(tempIndexList) = 0;
 
-% Get exterior values for aleurone
-aleuroneSurfaceIndexList = find(grainExterior & (grainVolumeAligned == ALEURONE_INDEX));
+%clear centreCurveVolume
+
+%% Get exterior of aleurone.
+aleuroneExterior = grainExterior & (grainVolumeAligned == ALEURONE_INDEX);
+
+% Get edge of aleurone exterior.
+aleuroneEdge = imdilate(grainExterior & (grainVolumeAligned == ENDOSPERM_INDEX | ...
+    grainVolumeAligned == GERM_INDEX), STREL_18_CONNECTED);
+
+aleuroneEdge = aleuroneEdge & aleuroneExterior;
+
+aleuroneExterior = aleuroneExterior - aleuroneEdge;
+
+% Get index list and test plot both.
+aleuroneSurfaceIndexList = find(aleuroneExterior);
 
 nIndex = length(aleuroneSurfaceIndexList); aleuroneSurfaceSubscriptArray = zeros(nIndex, 3);
 
 [aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), aleuroneSurfaceSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, aleuroneSurfaceIndexList);
-%% Allocate points equally across surface, as in bee
+
+aleuroneEdgeIndexList = find(aleuroneEdge);
+
+nIndex = length(aleuroneEdgeIndexList); aleuroneEdgeSubscriptArray = zeros(nIndex, 3);
+
+[aleuroneEdgeSubscriptArray(:,1), aleuroneEdgeSubscriptArray(:,2), aleuroneEdgeSubscriptArray(:,3)] = ...
+    ind2sub(volumeSize, aleuroneEdgeIndexList);
+
+figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
+plot3(aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), ...
+    aleuroneSurfaceSubscriptArray(:,3), 'b.')
+plot3(aleuroneEdgeSubscriptArray(:,1), aleuroneEdgeSubscriptArray(:,2), ...
+    aleuroneEdgeSubscriptArray(:,3), 'r.')
+
+clear aleuroneExterior, clear aleuroneEdge,  
+
+%% Allocate points equally across surface and border, as in bee
+edgePointsToChoose = 1:length(aleuroneEdgeIndexList);
+
+surfacePointsToChoose = 1:length(aleuroneSurfaceIndexList);
+
+edgePointsChoosen = zeros(length(aleuroneEdgeIndexList),1);
+
+surfacePointsChoosen = zeros(length(aleuroneSurfaceIndexList),1);
+
+edgeDistance = 50;
+
+surfaceDistance = 100;
+
+% Test edge points first. Select from top of germ (max Y)
+while ~isempty(edgePointsToChoose)
+    [~, ind] = max(aleuroneEdgeSubscriptArray(edgePointsToChoose,3));
+    
+    edgePointsChoosen(ind) = 1;
+    
+    pointChoosen = aleuroneEdgeSubscriptArray(edgePointsToChoose(ind),:);
+    
+    % Remove edge and surface points nearby.
+    indsToRemove = find( sqrt( (aleuroneEdgeSubscriptArray(edgePointsToChoose,1) - pointChoosen(1)).^2 + ...
+        (aleuroneEdgeSubscriptArray(edgePointsToChoose,2) - pointChoosen(2)).^2 + ...
+        (aleuroneEdgeSubscriptArray(edgePointsToChoose,3) - pointChoosen(3)).^2) < edgeDistance);
+    
+    edgePointsToChoose(indsToRemove) = [];
+    
+    indsToRemove = find( sqrt( (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,1) - pointChoosen(1)).^2 + ...
+        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,2) - pointChoosen(2)).^2 + ...
+        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,3) - pointChoosen(3)).^2) < edgeDistance);
+    
+    surfacePointsToChoose(indsToRemove) = [];
+end
+
+error('Find out why surface points not allocated on bottom of grain')
+
+% Select surface points from remaining, now go across X
+while ~isempty(surfacePointsToChoose)
+    [~, ind] = max(aleuroneSurfaceSubscriptArray(surfacePointsToChoose,1));
+    
+    surfacePointsChoosen(ind) = 1;
+    
+    pointChoosen = aleuroneSurfaceSubscriptArray(surfacePointsToChoose(ind),:);
+    
+    % Remove surface points nearby.  
+    indsToRemove = find( sqrt( (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,1) - pointChoosen(1)).^2 + ...
+        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,2) - pointChoosen(2)).^2 + ...
+        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,3) - pointChoosen(3)).^2) < surfaceDistance);
+    
+    surfacePointsToChoose(indsToRemove) = [];
+end
+
+edgePointsChoosen = find(edgePointsChoosen);
+
+surfacePointsChoosen = find(surfacePointsChoosen);
+
+figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
+plot3(aleuroneSurfaceSubscriptArray(surfacePointsChoosen,1), aleuroneSurfaceSubscriptArray(surfacePointsChoosen,2), ...
+    aleuroneSurfaceSubscriptArray(surfacePointsChoosen,3), 'b.')
+plot3(aleuroneEdgeSubscriptArray(edgePointsChoosen,1), aleuroneEdgeSubscriptArray(edgePointsChoosen,2), ...
+    aleuroneEdgeSubscriptArray(edgePointsChoosen,3), 'r.')
 
 %% Calulate distance points
 
+%%% Test how is geodesic connectivity calculated - its 26
+%temp = zeros(3,3,3,'logical');
+%temp(1, :, 1) = 1;
+%temp(1, 1, 1) = 1; temp(2, 2, 1) = 1; temp(3, 3, 1) = 1;
+%temp(1, 1, 1) = 1; temp(2, 2, 2) = 1; temp(3, 3, 3) = 1;
+%bwdistgeodesic(temp, 1,'quasi-euclidean')
 
 %% Test geodesic embedding for unwrapping.
 % Problem can occur if there are unlinked vertices, check by running fast marching once.
