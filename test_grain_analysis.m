@@ -755,7 +755,7 @@ for iSlice = zToInterp:smallVolumeSize(3)
 end
 
 % Take difference between volume erode and volume - should be continous surface
-centreCurveVolume = centreCurveVolume - imerode(centreCurveVolume, STREL_18_CONNECTED);
+centreCurveVolume = centreCurveVolume - imerode(centreCurveVolume, STREL_26_CONNECTED);
 
 % Remove ends from volume.
 centreCurveVolume(:,:,1:(zTopOfLoop-1)) = 0;
@@ -880,7 +880,9 @@ tempIndexList = sub2ind(volumeSize, curveSubscriptArray(:,1), curveSubscriptArra
 
 grainExterior(tempIndexList) = 0;
 
-%clear centreCurveVolume
+%figure; imshow(sum(grainExterior(:,:,1623:1624),3))
+
+% clear centreCurveVolume, clear smallGrainExterior, clear smallGrainVolume
 
 %% Get exterior of aleurone.
 aleuroneExterior = grainExterior & (grainVolumeAligned == ALEURONE_INDEX);
@@ -891,7 +893,6 @@ aleuroneEdge = imdilate(grainExterior & (grainVolumeAligned == ENDOSPERM_INDEX |
 
 aleuroneEdge = aleuroneEdge & aleuroneExterior;
 
-aleuroneExterior = aleuroneExterior - aleuroneEdge;
 
 % Get index list and test plot both.
 aleuroneSurfaceIndexList = find(aleuroneExterior);
@@ -914,7 +915,7 @@ plot3(aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), ..
 plot3(aleuroneEdgeSubscriptArray(:,1), aleuroneEdgeSubscriptArray(:,2), ...
     aleuroneEdgeSubscriptArray(:,3), 'r.')
 
-clear aleuroneExterior, clear aleuroneEdge,  
+clear aleuroneEdge 
 
 %% Allocate points equally across surface and border, as in bee
 edgePointsToChoose = 1:length(aleuroneEdgeIndexList);
@@ -925,15 +926,15 @@ edgePointsChoosen = zeros(length(aleuroneEdgeIndexList),1);
 
 surfacePointsChoosen = zeros(length(aleuroneSurfaceIndexList),1);
 
-edgeDistance = 50;
+edgeDistance = 200;
 
-surfaceDistance = 100;
+surfaceDistance = 400;
 
 % Test edge points first. Select from top of germ (max Y)
 while ~isempty(edgePointsToChoose)
     [~, ind] = max(aleuroneEdgeSubscriptArray(edgePointsToChoose,3));
     
-    edgePointsChoosen(ind) = 1;
+    edgePointsChoosen(edgePointsToChoose(ind)) = 1;
     
     pointChoosen = aleuroneEdgeSubscriptArray(edgePointsToChoose(ind),:);
     
@@ -951,13 +952,11 @@ while ~isempty(edgePointsToChoose)
     surfacePointsToChoose(indsToRemove) = [];
 end
 
-error('Find out why surface points not allocated on bottom of grain')
-
-% Select surface points from remaining, now go across X
+% Select surface points from remaining, again going down Z
 while ~isempty(surfacePointsToChoose)
-    [~, ind] = max(aleuroneSurfaceSubscriptArray(surfacePointsToChoose,1));
+    [~, ind] = max(aleuroneSurfaceSubscriptArray(surfacePointsToChoose,3));
     
-    surfacePointsChoosen(ind) = 1;
+    surfacePointsChoosen(surfacePointsToChoose(ind)) = 1;
     
     pointChoosen = aleuroneSurfaceSubscriptArray(surfacePointsToChoose(ind),:);
     
@@ -969,9 +968,11 @@ while ~isempty(surfacePointsToChoose)
     surfacePointsToChoose(indsToRemove) = [];
 end
 
-edgePointsChoosen = find(edgePointsChoosen);
+edgePointsChoosen = find(edgePointsChoosen); 
 
-surfacePointsChoosen = find(surfacePointsChoosen);
+surfacePointsChoosen = find(surfacePointsChoosen); 
+
+[length(edgePointsChoosen) length(surfacePointsChoosen)]
 
 figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
 plot3(aleuroneSurfaceSubscriptArray(surfacePointsChoosen,1), aleuroneSurfaceSubscriptArray(surfacePointsChoosen,2), ...
@@ -979,7 +980,7 @@ plot3(aleuroneSurfaceSubscriptArray(surfacePointsChoosen,1), aleuroneSurfaceSubs
 plot3(aleuroneEdgeSubscriptArray(edgePointsChoosen,1), aleuroneEdgeSubscriptArray(edgePointsChoosen,2), ...
     aleuroneEdgeSubscriptArray(edgePointsChoosen,3), 'r.')
 
-%% Calulate distance points
+%% Calulate distance between points
 
 %%% Test how is geodesic connectivity calculated - its 26
 %temp = zeros(3,3,3,'logical');
@@ -988,86 +989,148 @@ plot3(aleuroneEdgeSubscriptArray(edgePointsChoosen,1), aleuroneEdgeSubscriptArra
 %temp(1, 1, 1) = 1; temp(2, 2, 2) = 1; temp(3, 3, 3) = 1;
 %bwdistgeodesic(temp, 1,'quasi-euclidean')
 
-%% Test geodesic embedding for unwrapping.
-% Problem can occur if there are unlinked vertices, check by running fast marching once.
-tempD = perform_fast_marching_mesh(aleuroneSurface.vertices, aleuroneSurface.faces, 50);
+subscriptsToInterpolate = [aleuroneSurfaceSubscriptArray(surfacePointsChoosen,:)'...
+    aleuroneEdgeSubscriptArray(edgePointsChoosen,:)']';
 
-%%% If small number of unreachable faces, should be able to find all by testing
-%%% one point randomly. Need to confirm.
+indsToInterpolate = sub2ind(volumeSize, subscriptsToInterpolate(:,1), subscriptsToInterpolate(:,2),...
+    subscriptsToInterpolate(:,3));
 
-% Remove points with inf distance.
-if sum(isinf(tempD))
-    vertexToRemove = find(isinf(tempD));
+nPoints = length(indsToInterpolate);
 
-    facesToRemove = zeros(nFace,1);
+distanceMatrix = zeros(nPoints, nPoints);
 
-    for iVertex = 1:length(vertexToRemove)
-        vertexInFace = find(aleuroneSurface.faces == vertexToRemove(iVertex));
+%%% Should be able to parallelize this.
 
-        [tempFaceIndex, ~] = ind2sub([nFace, 3], vertexInFace);
+% Loop through geodesic distance calculations for each point than put into matrix.
+for iPoint = 1:nPoints
+    tic
+    dMap = bwdistgeodesic(aleuroneExterior, indsToInterpolate(iPoint),'quasi-euclidean');
+    toc
 
-        facesToRemove(tempFaceIndex) = 1;
-    end
-
-    facesToRemove = find(facesToRemove);
-
-    aleuroneSurface.faces(facesToRemove, :) = [];
-
-    % Need to keep original vertex positions to relink faces
-    initialVertexPositions = 1:nVertex;
-
-    aleuroneSurface.vertices(vertexToRemove, :) = [];
-
-    initialVertexPositions(vertexToRemove) = [];
-
-    nVertex = size(aleuroneSurface.vertices,1);
-
-    nFace = size(aleuroneSurface.faces,1);
-
-    % Relink remaining faces.
-    for iVertex = 1:nVertex
-
-        aleuroneSurface.faces(aleuroneSurface.faces == initialVertexPositions(iVertex)) = iVertex;
-
-    end
+    %tempInd = sub2ind(volumeSize, 378, 175, 1651);
+    %dMap = bwdistgeodesic(aleuroneExterior, tempInd,'quasi-euclidean');
+    
+    % Pause to let matlab free memory (?)
+    pause(0.1)
+    
+    distanceMatrix(iPoint, :) = dMap(indsToInterpolate);
 end
 
-% Get distance map for all.
-D = zeros(nVertex);
+% Save to prevent overwrite.
+%distanceMatrixSaver = distanceMatrix;
+%pPoint = iPoint;
 
-for iVertex = 1:nVertex
-    
-    D(:,iVertex) = perform_fast_marching_mesh(aleuroneSurface.vertices, aleuroneSurface.faces, iVertex);
-    
+% Debug plot - show colour maps. Tests well on 7
+% figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
+% cols = round(dMap(aleuroneSurfaceIndexList)/max(distanceMatrix(:))*99) + 1;
+% cols(isinf(cols)) = 110;
+% fscatter3(aleuroneSurfaceSubscriptArray(:,1),aleuroneSurfaceSubscriptArray(:,2),...
+%     aleuroneSurfaceSubscriptArray(:,3),cols,jet(100));
+% % plot3(subscriptsToInterpolate(pPoint,1), subscriptsToInterpolate(pPoint,2), ...
+% %     subscriptsToInterpolate(pPoint,3),'mo', 'markersize',20);
+% plot3(378,175,1651,'mo', 'markersize',20);
+
+% Debug plot - show series of slices 
+% dMap(isnan(dMap)) = 0;
+% for iTemp = 1615:1625
+%     figure; imshow(sum(dMap(:,:,iTemp:iTemp+1),3))
+% end
+% 
+% %Debug plot - show thick overlay figure
+% figure; imshow(sum(dMap(:,:,1615:1625),3))
+% 
+% % Debug plot - show local series of points
+% inds = find(aleuroneSurfaceSubscriptArray(:,3) > 1615 & aleuroneSurfaceSubscriptArray(:,3) < 1625);
+% figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
+% plot3(aleuroneSurfaceSubscriptArray(inds,1),aleuroneSurfaceSubscriptArray(inds,2),...
+%      aleuroneSurfaceSubscriptArray(inds,3),'b.');
+%  
+% %Debug plot - show series of coloured points
+% inds = find(aleuroneSurfaceSubscriptArray(:,3) > 1600 & aleuroneSurfaceSubscriptArray(:,3) < 1700 & ...
+%     aleuroneSurfaceSubscriptArray(:,1) < 380);
+% cols = round(dMap(aleuroneSurfaceIndexList(inds))/max(100)*99) + 1;
+% cols(isinf(cols)) = 110; cols(cols > 100) = 100;
+% figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
+% fscatter3(aleuroneSurfaceSubscriptArray(inds,1),aleuroneSurfaceSubscriptArray(inds,2),...
+%      aleuroneSurfaceSubscriptArray(inds,3),cols,jet(100));
+
+%Just test lines between points, can do on any afterwards
+% figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
+% plot3(aleuroneSurfaceSubscriptArray(surfacePointsChoosen,1), aleuroneSurfaceSubscriptArray(surfacePointsChoosen,2), ...
+%     aleuroneSurfaceSubscriptArray(surfacePointsChoosen,3), 'b.')
+% plot3(aleuroneEdgeSubscriptArray(edgePointsChoosen,1), aleuroneEdgeSubscriptArray(edgePointsChoosen,2), ...
+%     aleuroneEdgeSubscriptArray(edgePointsChoosen,3), 'r.')
+% plot3(aleuroneEdgeSubscriptArray(:,1), aleuroneEdgeSubscriptArray(:,2), ...
+%     aleuroneEdgeSubscriptArray(:,3), 'g.')
+% 
+% colMap = jet(100);
+% maxDist = max(distanceMatrix(:));
+% 
+% pointToTest = 7; % prob on 20 to 7
+% 
+% for iPoint = 1:nPoints
+%     col = colMap(round(distanceMatrix(pointToTest,iPoint)/maxDist*99)+1,:);
+%     line([subscriptsToInterpolate(pointToTest,1) subscriptsToInterpolate(iPoint,1)], ...
+%         [subscriptsToInterpolate(pointToTest,2) subscriptsToInterpolate(iPoint,2)], ...
+%         [subscriptsToInterpolate(pointToTest,3) subscriptsToInterpolate(iPoint,3)], 'color', col);
+% end
+% 
+% plot3(subscriptsToInterpolate(pPoint,1), subscriptsToInterpolate(pPoint,2), ...
+%     subscriptsToInterpolate(pPoint,3),'mo', 'markersize',20);
+
+%% Calculate unwrapping - based on tutorial on Numerical tours
+
+% Check for points with inf distance.
+if any(isinf(distanceMatrix(:))) || any(isnan(distanceMatrix(:)))
+   error('Can not have NaN or Inf in distance matrix')
 end
 
-sum(isinf(D(:)))
+% Enforce symmetry (should be ok...)
+distanceMatrixTemp = (distanceMatrix + distanceMatrix')/2;
 
-D = (D + D')/2;
+% Compute centered matrix.
+J = eye(nPoints) - ones(nPoints)/nPoints;
+W = -J*(distanceMatrixTemp.^2)*J;
 
-J = eye(nVertex) - ones(nVertex)/nVertex;
-W = -J*(D.^2)*J;
-
-%%% Infs are sometimes produced in loop, need to resolve.
-
+% Diagonalize centred matrix.
 [U,S] = eig(W);
 S = diag(S);
-[S,I] = sort(S,'descend'); U = U(:,I);
+[S,I] = sort(S,'descend'); 
+U = U(:,I);
 
-% To plot.
-vertexF = U(:,1:2)' .* repmat(sqrt(S(1:2)), [1 nVertex]);
+figure; plot(S)
 
-icenter = 50;
-irotate = 50;
+% Map is determined by two largest values
+pointsUnwrapped = U(:,1:2)' .* repmat(sqrt(S(1:2)), [1 nPoints]);
 
-vertexF = vertexF - repmat(vertexF(:,icenter), [1 nVertex]);
-theta = -pi/2+atan2(vertexF(2,irotate),vertexF(1,irotate));
-vertexF = [vertexF(1,:)*cos(theta)+vertexF(2,:)*sin(theta); ...
-           -vertexF(1,:)*sin(theta)+vertexF(2,:)*cos(theta)];
+icenter = 20;
+irotate = 20;
 
-figure;
-plot_mesh(vertexF,aleuroneSurface.faces);
+%pointsUnwrapped = pointsUnwrapped - repmat(pointsUnwrapped(:,icenter), [1 nPoints]);
+%theta = -pi/2+atan2(pointsUnwrapped(2,irotate),pointsUnwrapped(1,irotate));
+%pointsUnwrapped = [pointsUnwrapped(1,:)*cos(theta)+pointsUnwrapped(2,:)*sin(theta); ...
+%           -pointsUnwrapped(1,:)*sin(theta)+pointsUnwrapped(2,:)*cos(theta)];
+
+figure; hold on; axis equal;
+plot(pointsUnwrapped(1,1:length(surfacePointsChoosen)), pointsUnwrapped(2,1:length(surfacePointsChoosen)), 'b.')
+
+plot(pointsUnwrapped(1,length(surfacePointsChoosen)+1:end), pointsUnwrapped(2,length(surfacePointsChoosen)+1:end), 'r.')
        
+for i = length(surfacePointsChoosen)+1:size(pointsUnwrapped,2)
+    text(pointsUnwrapped(1,i), pointsUnwrapped(2,i), sprintf('%i', i - length(surfacePointsChoosen)));
+end
+
+figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
+plot3(aleuroneSurfaceSubscriptArray(surfacePointsChoosen,1), aleuroneSurfaceSubscriptArray(surfacePointsChoosen,2), ...
+    aleuroneSurfaceSubscriptArray(surfacePointsChoosen,3), 'b.')
+
+plot3(aleuroneEdgeSubscriptArray(edgePointsChoosen,1), aleuroneEdgeSubscriptArray(edgePointsChoosen,2), ...
+    aleuroneEdgeSubscriptArray(edgePointsChoosen,3), 'r.')
+for i = 1:length(edgePointsChoosen)
+    text(aleuroneEdgeSubscriptArray(edgePointsChoosen(i),1), aleuroneEdgeSubscriptArray(edgePointsChoosen(i),2), ...
+    aleuroneEdgeSubscriptArray(edgePointsChoosen(i),3), sprintf('%i', i ));
+end
+
 % To do: 
 %        - Then apply deformation field to volumes
 %        - Look down into volume to get thickness of aleurone
