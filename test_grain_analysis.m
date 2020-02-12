@@ -84,18 +84,14 @@ tempCC = bwconncomp(grainExterior, 18);
 tempStats = regionprops(tempCC, 'PixelIdxList');
 
 % Get number of voxels in each region. 
-nRegions = length(tempStats);
-
-voxelsPerRegionArray = zeros(nRegions,1);
+nRegions = length(tempStats); voxelsPerRegionArray = zeros(nRegions,1);
 
 for iRegion = 1:nRegions
     voxelsPerRegionArray(iRegion) = length(tempStats(iRegion).PixelIdxList);
 end
 
 % Largest will generally be much larger than others.
-[~, tempIndex] = max(voxelsPerRegionArray);
-
-tempStats(tempIndex) = [];
+[~, tempIndex] = max(voxelsPerRegionArray); tempStats(tempIndex) = [];
 
 % Remove other regions from volume.
 for iRegion = 1:nRegions-1
@@ -755,7 +751,7 @@ for iSlice = zToInterp:smallVolumeSize(3)
 end
 
 % Take difference between volume erode and volume - should be continous surface
-centreCurveVolume = centreCurveVolume - imerode(centreCurveVolume, STREL_26_CONNECTED);
+centreCurveVolume = logical(centreCurveVolume - imerode(centreCurveVolume, STREL_26_CONNECTED));
 
 % Remove ends from volume.
 centreCurveVolume(:,:,1:(zTopOfLoop-1)) = 0;
@@ -880,18 +876,60 @@ tempIndexList = sub2ind(volumeSize, curveSubscriptArray(:,1), curveSubscriptArra
 
 grainExterior(tempIndexList) = 0;
 
-%figure; imshow(sum(grainExterior(:,:,1623:1624),3))
+figure; imshow(sum(grainExterior(:,:,1623:1624),3))
 
-% clear centreCurveVolume, clear smallGrainExterior, clear smallGrainVolume
+clear centreCurveVolume, clear smallGrainExterior, clear smallGrainVolume
 
-%% Get exterior of aleurone.
+%% Get exterior surface of aleurone.
 aleuroneExterior = grainExterior & (grainVolumeAligned == ALEURONE_INDEX);
 
-% Get edge of aleurone exterior.
+% Take largest connected region of surface.
+tempCC = bwconncomp(aleuroneExterior, 26);
+
+tempStats = regionprops(tempCC, 'PixelIdxList');
+
+% Get number of voxels in each region. 
+nRegions = length(tempStats); voxelsPerRegionArray = zeros(nRegions,1);
+
+for iRegion = 1:nRegions
+    voxelsPerRegionArray(iRegion) = length(tempStats(iRegion).PixelIdxList);
+end
+
+% Largest will generally be much larger than others.
+[~, tempIndex] = max(voxelsPerRegionArray); tempStats(tempIndex) = [];
+
+% Remove other regions from volume.
+for iRegion = 1:nRegions-1
+    aleuroneExterior(tempStats(iRegion).PixelIdxList) = 0;
+end
+
+
+
+% Get edge of aleurone surface.
 aleuroneEdge = imdilate(grainExterior & (grainVolumeAligned == ENDOSPERM_INDEX | ...
     grainVolumeAligned == GERM_INDEX), STREL_18_CONNECTED);
 
 aleuroneEdge = aleuroneEdge & aleuroneExterior;
+
+% Take largest connected region of edge.
+tempCC = bwconncomp(aleuroneEdge, 26);
+
+tempStats = regionprops(tempCC, 'PixelIdxList');
+
+% Get number of voxels in each region. 
+nRegions = length(tempStats); voxelsPerRegionArray = zeros(nRegions,1);
+
+for iRegion = 1:nRegions
+    voxelsPerRegionArray(iRegion) = length(tempStats(iRegion).PixelIdxList);
+end
+
+% Largest will generally be much larger than others.
+[~, tempIndex] = max(voxelsPerRegionArray); tempStats(tempIndex) = [];
+
+% Remove other regions from volume.
+for iRegion = 1:nRegions-1
+    aleuroneEdge(tempStats(iRegion).PixelIdxList) = 0;
+end
 
 
 % Get index list and test plot both.
@@ -909,12 +947,15 @@ nIndex = length(aleuroneEdgeIndexList); aleuroneEdgeSubscriptArray = zeros(nInde
 [aleuroneEdgeSubscriptArray(:,1), aleuroneEdgeSubscriptArray(:,2), aleuroneEdgeSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, aleuroneEdgeIndexList);
 
+
+
 figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
 plot3(aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), ...
     aleuroneSurfaceSubscriptArray(:,3), 'b.')
 plot3(aleuroneEdgeSubscriptArray(:,1), aleuroneEdgeSubscriptArray(:,2), ...
     aleuroneEdgeSubscriptArray(:,3), 'r.')
 
+[sum(aleuroneExterior(aleuroneSurfaceIndexList)) sum(aleuroneExterior(aleuroneEdgeIndexList))]
 clear aleuroneEdge 
 
 %% Allocate points equally across surface and border, as in bee
@@ -926,9 +967,9 @@ edgePointsChoosen = zeros(length(aleuroneEdgeIndexList),1);
 
 surfacePointsChoosen = zeros(length(aleuroneSurfaceIndexList),1);
 
-edgeDistance = 200;
+edgeDistance = 300;
 
-surfaceDistance = 400;
+surfaceDistance = 500;
 
 % Test edge points first. Select from top of germ (max Y)
 while ~isempty(edgePointsToChoose)
@@ -980,6 +1021,10 @@ plot3(aleuroneSurfaceSubscriptArray(surfacePointsChoosen,1), aleuroneSurfaceSubs
 plot3(aleuroneEdgeSubscriptArray(edgePointsChoosen,1), aleuroneEdgeSubscriptArray(edgePointsChoosen,2), ...
     aleuroneEdgeSubscriptArray(edgePointsChoosen,3), 'r.')
 
+%%% Place point at top and bottom of grain above center.
+%%% Need way to find. Can then noramalize scale of map based on this
+error('Add point at top and bottom upper layer of aleurone')
+
 %% Calulate distance between points
 
 %%% Test how is geodesic connectivity calculated - its 26
@@ -1002,13 +1047,15 @@ distanceMatrix = zeros(nPoints, nPoints);
 %%% Should be able to parallelize this.
 
 % Loop through geodesic distance calculations for each point than put into matrix.
-for iPoint = 1:nPoints
+for iPoint = 1:nPoints %
     tic
     dMap = bwdistgeodesic(aleuroneExterior, indsToInterpolate(iPoint),'quasi-euclidean');
     toc
 
     %tempInd = sub2ind(volumeSize, 378, 175, 1651);
     %dMap = bwdistgeodesic(aleuroneExterior, tempInd,'quasi-euclidean');
+    
+    %%% Could fit parabola and calculate normal to interior intersection on this step.
     
     % Pause to let matlab free memory (?)
     pause(0.1)
@@ -1021,14 +1068,14 @@ end
 %pPoint = iPoint;
 
 % Debug plot - show colour maps. Tests well on 7
-% figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
-% cols = round(dMap(aleuroneSurfaceIndexList)/max(distanceMatrix(:))*99) + 1;
-% cols(isinf(cols)) = 110;
-% fscatter3(aleuroneSurfaceSubscriptArray(:,1),aleuroneSurfaceSubscriptArray(:,2),...
-%     aleuroneSurfaceSubscriptArray(:,3),cols,jet(100));
-% % plot3(subscriptsToInterpolate(pPoint,1), subscriptsToInterpolate(pPoint,2), ...
-% %     subscriptsToInterpolate(pPoint,3),'mo', 'markersize',20);
-% plot3(378,175,1651,'mo', 'markersize',20);
+figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
+cols = round(dMap(aleuroneSurfaceIndexList)/max(distanceMatrix(:))*99) + 1;
+cols(isinf(cols)) = 110;
+fscatter3(aleuroneSurfaceSubscriptArray(:,1),aleuroneSurfaceSubscriptArray(:,2),...
+    aleuroneSurfaceSubscriptArray(:,3),cols,jet(100));
+% plot3(subscriptsToInterpolate(pPoint,1), subscriptsToInterpolate(pPoint,2), ...
+%     subscriptsToInterpolate(pPoint,3),'mo', 'markersize',20);
+plot3(378,175,1651,'mo', 'markersize',20);
 
 % Debug plot - show series of slices 
 % dMap(isnan(dMap)) = 0;
@@ -1037,7 +1084,7 @@ end
 % end
 % 
 % %Debug plot - show thick overlay figure
-% figure; imshow(sum(dMap(:,:,1615:1625),3))
+% figure; imshow(sum(dMap(:,:,1623:1624),3))
 % 
 % % Debug plot - show local series of points
 % inds = find(aleuroneSurfaceSubscriptArray(:,3) > 1615 & aleuroneSurfaceSubscriptArray(:,3) < 1625);
@@ -1066,7 +1113,7 @@ end
 % colMap = jet(100);
 % maxDist = max(distanceMatrix(:));
 % 
-% pointToTest = 7; % prob on 20 to 7
+% pointToTest = 23; % prob on 20 to 7
 % 
 % for iPoint = 1:nPoints
 %     col = colMap(round(distanceMatrix(pointToTest,iPoint)/maxDist*99)+1,:);
@@ -1074,11 +1121,12 @@ end
 %         [subscriptsToInterpolate(pointToTest,2) subscriptsToInterpolate(iPoint,2)], ...
 %         [subscriptsToInterpolate(pointToTest,3) subscriptsToInterpolate(iPoint,3)], 'color', col);
 % end
-% 
+
 % plot3(subscriptsToInterpolate(pPoint,1), subscriptsToInterpolate(pPoint,2), ...
 %     subscriptsToInterpolate(pPoint,3),'mo', 'markersize',20);
 
 %% Calculate unwrapping - based on tutorial on Numerical tours
+% https://nbviewer.jupyter.org/github/gpeyre/numerical-tours/blob/master/matlab/meshdeform_3_flattening.ipynb
 
 % Check for points with inf distance.
 if any(isinf(distanceMatrix(:))) || any(isnan(distanceMatrix(:)))
@@ -1098,10 +1146,10 @@ S = diag(S);
 [S,I] = sort(S,'descend'); 
 U = U(:,I);
 
-figure; plot(S)
+figure; plot(S,'x-')
 
 % Map is determined by two largest values
-pointsUnwrapped = U(:,1:2)' .* repmat(sqrt(S(1:2)), [1 nPoints]);
+pointsUnwrapped = (U(:,1:2)' .* repmat(sqrt(S(1:2)), [1 nPoints]))';
 
 icenter = 20;
 irotate = 20;
@@ -1111,16 +1159,34 @@ irotate = 20;
 %pointsUnwrapped = [pointsUnwrapped(1,:)*cos(theta)+pointsUnwrapped(2,:)*sin(theta); ...
 %           -pointsUnwrapped(1,:)*sin(theta)+pointsUnwrapped(2,:)*cos(theta)];
 
-figure; hold on; axis equal;
-plot(pointsUnwrapped(1,1:length(surfacePointsChoosen)), pointsUnwrapped(2,1:length(surfacePointsChoosen)), 'b.')
+%%% Should check how well diemsions are preserved during unwrapping.
+% D2 will go to Z, D1 will go to X, Y is set in middle
 
-plot(pointsUnwrapped(1,length(surfacePointsChoosen)+1:end), pointsUnwrapped(2,length(surfacePointsChoosen)+1:end), 'r.')
+%%% Need to majorly reshape new points to preserve dimensions. Done manuely for now
+% Flip Y and add minimum
+pointsUnwrapped(:,2) = -pointsUnwrapped(:,2); 
+pointsUnwrapped(:,2) = pointsUnwrapped(:,2) - min(pointsUnwrapped(:,2));
+
+%Flip X, center
+pointsUnwrapped(:,1) = -pointsUnwrapped(:,1);
+pointsUnwrapped(:,1) = pointsUnwrapped(:,1)-mean(pointsUnwrapped(:,1))+volumeSize(1)/2;
+
+targetSubscripts = [pointsUnwrapped(:,1) ones(size(pointsUnwrapped,1),1)*volumeSize(2)/2, pointsUnwrapped(:,2)];
+
+figure; hold on; axis equal; set(gca, 'Clipping', 'off')
+plot3(targetSubscripts(1:length(surfacePointsChoosen),1), targetSubscripts(1:length(surfacePointsChoosen),2), ...
+    targetSubscripts(1:length(surfacePointsChoosen),3), 'b.')
+
+plot3(targetSubscripts(length(surfacePointsChoosen)+1:end,1), targetSubscripts(length(surfacePointsChoosen)+1:end,2), ...
+    targetSubscripts(length(surfacePointsChoosen)+1:end,3), 'r.')
        
-for i = length(surfacePointsChoosen)+1:size(pointsUnwrapped,2)
-    text(pointsUnwrapped(1,i), pointsUnwrapped(2,i), sprintf('%i', i - length(surfacePointsChoosen)));
+for i = length(surfacePointsChoosen)+1:size(targetSubscripts,1)
+    text(targetSubscripts(i,1), targetSubscripts(i,2), targetSubscripts(i,3), sprintf('%i', i - length(surfacePointsChoosen)));
 end
 
-figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
+xlabel('x'); ylabel('y')
+
+%figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
 plot3(aleuroneSurfaceSubscriptArray(surfacePointsChoosen,1), aleuroneSurfaceSubscriptArray(surfacePointsChoosen,2), ...
     aleuroneSurfaceSubscriptArray(surfacePointsChoosen,3), 'b.')
 
@@ -1131,7 +1197,38 @@ for i = 1:length(edgePointsChoosen)
     aleuroneEdgeSubscriptArray(edgePointsChoosen(i),3), sprintf('%i', i ));
 end
 
-% To do: 
-%        - Then apply deformation field to volumes
-%        - Look down into volume to get thickness of aleurone
-%        - Could also integrate intensity to see if this varies
+xlabel('x'); ylabel('y')
+
+
+clear aleuroneExterior, clear dMap
+%clear grainExterior,
+%% Now use point_registration and bspline_transform to shift volumes.
+%%%% May wish to draw lines in from points (based on surface normal) to get
+%%% interior manifold. These points are then just measured distance beneath
+%%% others.
+
+options.Verbose = 2;
+
+%%% Should form appropriate new image here
+
+[O_trans, Spacing] = point_registration(volumeSize, subscriptsToInterpolate, ...
+    targetSubscripts, options);
+
+flatGrain = uint8(bspline_transform(O_trans, single(grainExterior), Spacing));
+
+figure; imshow(flatGrain(:,:,1000)*50)
+
+% May be that bspline_transform cannot open. If so, try shifting voxels bspline_trans_points_double
+
+
+% flatIndexList = find(flatGrain == 1);
+% 
+% nIndex = length(flatIndexList); flatSubscriptArray = zeros(nIndex, 3);
+% 
+% [flatSubscriptArray(:,1), flatSubscriptArray(:,2), flatSubscriptArray(:,3)] = ...
+%     ind2sub(volumeSize, flatIndexList);
+% 
+% 
+% figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
+% plot3(flatSubscriptArray(:,1), flatSubscriptArray(:,2), ...
+%     flatSubscriptArray(:,3), 'b.')
