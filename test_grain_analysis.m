@@ -967,9 +967,17 @@ edgePointsChoosen = zeros(length(aleuroneEdgeIndexList),1);
 
 surfacePointsChoosen = zeros(length(aleuroneSurfaceIndexList),1);
 
-edgeDistance = 300;
+% for 300, 500 gives 12 9 points - ~20 minutes, but this does not unwrap nicely
+% for 20, 50, gives 343 1314 points - ~27 hours
+% for 50, 100, gives 121 309 points - ~7 hours
+% for 50, 75, gives 121 565 points - ~11 hours - go with this!
+% for 30, 75, gives 216 562 points - ~13 hours 
 
-surfaceDistance = 500;
+% For test, seems good to get dense on border and moderate on surface
+
+edgeDistance = 50; 
+
+surfaceDistance = 75;
 
 % Test edge points first. Select from top of germ (max Y)
 while ~isempty(edgePointsToChoose)
@@ -988,7 +996,7 @@ while ~isempty(edgePointsToChoose)
     
     indsToRemove = find( sqrt( (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,1) - pointChoosen(1)).^2 + ...
         (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,2) - pointChoosen(2)).^2 + ...
-        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,3) - pointChoosen(3)).^2) < edgeDistance);
+        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,3) - pointChoosen(3)).^2) < surfaceDistance);
     
     surfacePointsToChoose(indsToRemove) = [];
 end
@@ -1023,7 +1031,7 @@ plot3(aleuroneEdgeSubscriptArray(edgePointsChoosen,1), aleuroneEdgeSubscriptArra
 
 %%% Place point at top and bottom of grain above center.
 %%% Need way to find. Can then noramalize scale of map based on this
-error('Add point at top and bottom upper layer of aleurone')
+warning('Add point at top and bottom upper layer of aleurone')
 
 %% Calulate distance between points
 
@@ -1062,6 +1070,9 @@ for iPoint = 1:nPoints %
     
     distanceMatrix(iPoint, :) = dMap(indsToInterpolate);
 end
+
+%save(sprintf('/Users/gavintaylor/Documents/Matlab/Temp_data/%s_%i_%i', 'distanceMatrix', edgeDistance, surfaceDistance), 'distanceMatrix');
+load('/Users/gavintaylor/Documents/Matlab/Temp_data/distanceMatrix_50_75.mat')
 
 % Save to prevent overwrite.
 %distanceMatrixSaver = distanceMatrix;
@@ -1151,13 +1162,7 @@ figure; plot(S,'x-')
 % Map is determined by two largest values
 pointsUnwrapped = (U(:,1:2)' .* repmat(sqrt(S(1:2)), [1 nPoints]))';
 
-icenter = 20;
-irotate = 20;
-
-%pointsUnwrapped = pointsUnwrapped - repmat(pointsUnwrapped(:,icenter), [1 nPoints]);
-%theta = -pi/2+atan2(pointsUnwrapped(2,irotate),pointsUnwrapped(1,irotate));
-%pointsUnwrapped = [pointsUnwrapped(1,:)*cos(theta)+pointsUnwrapped(2,:)*sin(theta); ...
-%           -pointsUnwrapped(1,:)*sin(theta)+pointsUnwrapped(2,:)*cos(theta)];
+pointsUnwrapped = pointsUnwrapped/2;
 
 %%% Should check how well diemsions are preserved during unwrapping.
 % D2 will go to Z, D1 will go to X, Y is set in middle
@@ -1178,7 +1183,7 @@ plot3(targetSubscripts(1:length(surfacePointsChoosen),1), targetSubscripts(1:len
     targetSubscripts(1:length(surfacePointsChoosen),3), 'b.')
 
 plot3(targetSubscripts(length(surfacePointsChoosen)+1:end,1), targetSubscripts(length(surfacePointsChoosen)+1:end,2), ...
-    targetSubscripts(length(surfacePointsChoosen)+1:end,3), 'r.')
+    targetSubscripts(length(surfacePointsChoosen)+1:end,3), 'r.-')
        
 for i = length(surfacePointsChoosen)+1:size(targetSubscripts,1)
     text(targetSubscripts(i,1), targetSubscripts(i,2), targetSubscripts(i,3), sprintf('%i', i - length(surfacePointsChoosen)));
@@ -1192,6 +1197,7 @@ plot3(aleuroneSurfaceSubscriptArray(surfacePointsChoosen,1), aleuroneSurfaceSubs
 
 plot3(aleuroneEdgeSubscriptArray(edgePointsChoosen,1), aleuroneEdgeSubscriptArray(edgePointsChoosen,2), ...
     aleuroneEdgeSubscriptArray(edgePointsChoosen,3), 'r.')
+
 for i = 1:length(edgePointsChoosen)
     text(aleuroneEdgeSubscriptArray(edgePointsChoosen(i),1), aleuroneEdgeSubscriptArray(edgePointsChoosen(i),2), ...
     aleuroneEdgeSubscriptArray(edgePointsChoosen(i),3), sprintf('%i', i ));
@@ -1200,35 +1206,80 @@ end
 xlabel('x'); ylabel('y')
 
 
-clear aleuroneExterior, clear dMap
+%clear aleuroneExterior, 
+clear dMap
 %clear grainExterior,
 %% Now use point_registration and bspline_transform to shift volumes.
 %%%% May wish to draw lines in from points (based on surface normal) to get
 %%% interior manifold. These points are then just measured distance beneath
 %%% others.
 
-options.Verbose = 2;
+options.MaxRef=1;
+options.Verbose=true;
 
-%%% Should form appropriate new image here
+[O_trans, Spacing] = point_registration(volumeSize([1 2 3]), subscriptsToInterpolate(:, [1 2 3]), ...
+    targetSubscripts(:, [1 2 3]), options);
 
-[O_trans, Spacing] = point_registration(volumeSize, subscriptsToInterpolate, ...
-    targetSubscripts, options);
+%%% Diffomorphic is require to prevent problems, but takes forever on full volume.
+    % Try with one it of point placing (coase spacing). A bit faster...
+tic
+[O_trans,Spacing]=MakeDiffeomorphic(O_trans,Spacing,volumeSize);
+toc
 
-flatGrain = uint8(bspline_transform(O_trans, single(grainExterior), Spacing));
+%%% Target points match exactly, other points are generally ok and lie on plane
+    %%% Although the border is quite wavy and some points cross between
+    %%% flanges near germ.
+%%% Dense point sets helps a lot, but internal manifold will probably not assist with this.
+tic
+flatEdgeSubscriptArray = bspline_trans_points_double(O_trans, Spacing, ...
+    aleuroneEdgeSubscriptArray);
 
-figure; imshow(flatGrain(:,:,1000)*50)
+flatSurfaceSubscriptArray = bspline_trans_points_double(O_trans, Spacing, ...
+    aleuroneSurfaceSubscriptArray(1:100:end,:));
+    %
+toc
 
-% May be that bspline_transform cannot open. If so, try shifting voxels bspline_trans_points_double
+%For Z 1000....
+% Use directly 
+    % Stretches along crease
+% Flip X and Y on O trans (and volume size) 
+    % Opens on one side but rotates 90 (has dent back opposite crease)
+% Flip X and Y on subscripts input (and volume size), but not on O trans.
+    % Opens on one side (possibly flipped, and dent back opposite crease)
+% Flip X and Y on subscripts input (and volume size), and on O trans.
+    % Rotated 90 and stretech along grain
+% Flip X and Y on subscripts input (and volume size), but not on O trans, and volume permuted.
+    % As direct...
 
+%%% Many strange artifacts using spline on image, diffeomrophic regularization may help
+%%% Placing internal manifold may also help.
+% tic
+% flatGrain = uint8( bspline_transform(O_trans(:, :, :, [1 2]), ... 
+%    single( grainVolumeAligned(:,:,1400)), Spacing([1 2])));
+% % flatGrain = permute(uint8( bspline_transform(O_trans(:, :, :, :), ... 
+% %    single( permute(grainVolumeAligned, [2 1 3])), Spacing)), [2 1 3]);
+% toc
 
-% flatIndexList = find(flatGrain == 1);
-% 
-% nIndex = length(flatIndexList); flatSubscriptArray = zeros(nIndex, 3);
-% 
-% [flatSubscriptArray(:,1), flatSubscriptArray(:,2), flatSubscriptArray(:,3)] = ...
-%     ind2sub(volumeSize, flatIndexList);
-% 
-% 
-% figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
-% plot3(flatSubscriptArray(:,1), flatSubscriptArray(:,2), ...
-%     flatSubscriptArray(:,3), 'b.')
+% slice = 1400;
+% figure; subplot(1,2,1); imshow(grainVolumeAligned(:,:,slice)*50); hold on;
+% indsToPlot = find(aleuroneSurfaceSubscriptArray(:,3) == slice);
+% plot(aleuroneSurfaceSubscriptArray(indsToPlot,2), aleuroneSurfaceSubscriptArray(indsToPlot,1),'r.')
+% subplot(1,2,2); imshow(flatGrain*50)
+%imshow(flatGrain(:,:,slice)*50)
+
+% Test unwrapping of point cloud
+figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
+plot3(targetSubscripts(:,1), targetSubscripts(:,2), ...
+    targetSubscripts(:,3), 'rx')
+
+plot3(aleuroneEdgeSubscriptArray(:,1), aleuroneEdgeSubscriptArray(:,2), ...
+    aleuroneEdgeSubscriptArray(:,3), 'r.')
+
+%plot3(flatSubscriptArray(1:100:end,1), flatSubscriptArray(1:100:end,2), ...
+%    flatSubscriptArray(1:100:end,3), 'g.')
+
+plot3(flatEdgeSubscriptArray(:,1), flatEdgeSubscriptArray(:,2), ...
+    flatEdgeSubscriptArray(:,3), 'mo')
+
+plot3(flatSurfaceSubscriptArray(:,1), flatSurfaceSubscriptArray(:,2), ...
+    flatSurfaceSubscriptArray(:,3), 'bo')
