@@ -836,13 +836,7 @@ for iSlice = 1:smallVolumeSize(3)
     end
 end
 
-curveIndexList = find(centreCurveVolume);
-
-nIndex = length(curveIndexList); curveSubscriptArray = zeros(nIndex, 3);
-
-[curveSubscriptArray(:,1), curveSubscriptArray(:,2), curveSubscriptArray(:,3)] = ...
-    ind2sub(smallVolumeSize, curveIndexList);
-
+clear smallGrainExterior, clear smallGrainVolume
 %% Test plot.
 figure; hold on; axis equal; set(gca, 'Clipping', 'off')
 
@@ -865,6 +859,13 @@ plot3(curveSubscriptArray(:,1), curveSubscriptArray(:,2), ...
 %plot3(curveX, curveY, curveZ, 'm.')
 
 %% Place curve cut back into full volume
+curveIndexList = find(centreCurveVolume);
+
+nIndex = length(curveIndexList); curveSubscriptArray = zeros(nIndex, 3);
+
+[curveSubscriptArray(:,1), curveSubscriptArray(:,2), curveSubscriptArray(:,3)] = ...
+    ind2sub(smallVolumeSize, curveIndexList);
+
 % Correct subscripts back to original coordinates
 curveSubscriptArray(:,1) = curveSubscriptArray(:,1) + xBoundsNew(1) - 1;
 
@@ -874,14 +875,16 @@ curveSubscriptArray(:,3) = curveSubscriptArray(:,3) + zBoundsNew(1) - 1;
 
 tempIndexList = sub2ind(volumeSize, curveSubscriptArray(:,1), curveSubscriptArray(:,2), curveSubscriptArray(:,3));
 
-grainExterior(tempIndexList) = 0;
+% Code curve into grain exterior as 2 to distinguish it later.
+grainExterior = uint8(grainExterior);
+grainExterior(tempIndexList(grainExterior(tempIndexList) == 1)) = 2;
 
-figure; imshow(sum(grainExterior(:,:,1623:1624),3))
+figure; imshow(sum(grainExterior(:,:,1623),3)/2)
 
-clear centreCurveVolume, clear smallGrainExterior, clear smallGrainVolume
+clear centreCurveVolume, 
 
 %% Get exterior surface of aleurone.
-aleuroneExterior = grainExterior & (grainVolumeAligned == ALEURONE_INDEX);
+aleuroneExterior = (grainExterior == 1) & (grainVolumeAligned == ALEURONE_INDEX);
 
 % Take largest connected region of surface.
 tempCC = bwconncomp(aleuroneExterior, 26);
@@ -907,7 +910,7 @@ end
 
 % Get edge of aleurone surface.
 aleuroneEdge = imdilate(grainExterior & (grainVolumeAligned == ENDOSPERM_INDEX | ...
-    grainVolumeAligned == GERM_INDEX), STREL_18_CONNECTED);
+    grainVolumeAligned == GERM_INDEX | grainExterior == 2), STREL_18_CONNECTED);
 
 aleuroneEdge = aleuroneEdge & aleuroneExterior;
 
@@ -950,14 +953,31 @@ nIndex = length(aleuroneEdgeIndexList); aleuroneEdgeSubscriptArray = zeros(nInde
 
 
 figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
-plot3(aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), ...
-    aleuroneSurfaceSubscriptArray(:,3), 'b.')
+% plot3(aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), ...
+%     aleuroneSurfaceSubscriptArray(:,3), 'b.')
 plot3(aleuroneEdgeSubscriptArray(:,1), aleuroneEdgeSubscriptArray(:,2), ...
     aleuroneEdgeSubscriptArray(:,3), 'r.')
 
 [sum(aleuroneExterior(aleuroneSurfaceIndexList)) sum(aleuroneExterior(aleuroneEdgeIndexList))]
-clear aleuroneEdge 
 
+
+
+% Get endosperm and germ surfaces for plotting.
+endospermSurfaceIndexList = find(grainExterior & (grainVolumeAligned == ENDOSPERM_INDEX));
+
+nIndex = length(endospermSurfaceIndexList); endospermSurfaceSubscriptArray = zeros(nIndex, 3);
+
+[endospermSurfaceSubscriptArray(:,1), endospermSurfaceSubscriptArray(:,2), endospermSurfaceSubscriptArray(:,3)] = ...
+    ind2sub(volumeSize, endospermSurfaceIndexList);
+
+germSurfaceIndexList = find(grainExterior & (grainVolumeAligned == GERM_INDEX));
+
+nIndex = length(germSurfaceIndexList); germSurfaceSubscriptArray = zeros(nIndex, 3);
+
+[germSurfaceSubscriptArray(:,1), germSurfaceSubscriptArray(:,2), germSurfaceSubscriptArray(:,3)] = ...
+    ind2sub(volumeSize, germSurfaceIndexList);
+
+clear aleuroneEdge, clear grainExterior
 %% Allocate points equally across surface and border, as in bee
 edgePointsToChoose = 1:length(aleuroneEdgeIndexList);
 
@@ -975,9 +995,9 @@ surfacePointsChoosen = zeros(length(aleuroneSurfaceIndexList),1);
 
 % For test, seems good to get dense on border and moderate on surface
 
-edgeDistance = 50; 
+edgeDistance = 25; 
 
-surfaceDistance = 75;
+surfaceDistance = 500;
 
 % Test edge points first. Select from top of germ (max Y)
 while ~isempty(edgePointsToChoose)
@@ -1028,11 +1048,6 @@ plot3(aleuroneSurfaceSubscriptArray(surfacePointsChoosen,1), aleuroneSurfaceSubs
     aleuroneSurfaceSubscriptArray(surfacePointsChoosen,3), 'b.')
 plot3(aleuroneEdgeSubscriptArray(edgePointsChoosen,1), aleuroneEdgeSubscriptArray(edgePointsChoosen,2), ...
     aleuroneEdgeSubscriptArray(edgePointsChoosen,3), 'r.')
-
-%%% Place point at top and bottom of grain above center.
-%%% Need way to find. Can then noramalize scale of map based on this
-warning('Add point at top and bottom upper layer of aleurone')
-
 %% Calulate distance between points
 
 %%% Test how is geodesic connectivity calculated - its 26
@@ -1054,8 +1069,10 @@ distanceMatrix = zeros(nPoints, nPoints);
 
 %%% Should be able to parallelize this.
 
+%%% Load in grey scale volume here for average calculations. 
+
 % Loop through geodesic distance calculations for each point than put into matrix.
-for iPoint = 1:nPoints %
+for iPoint = 1; %:nPoints %
     tic
     dMap = bwdistgeodesic(aleuroneExterior, indsToInterpolate(iPoint),'quasi-euclidean');
     toc
@@ -1063,7 +1080,8 @@ for iPoint = 1:nPoints %
     %tempInd = sub2ind(volumeSize, 378, 175, 1651);
     %dMap = bwdistgeodesic(aleuroneExterior, tempInd,'quasi-euclidean');
     
-    %%% Could fit parabola and calculate normal to interior intersection on this step.
+    warning('Get normal, average intensity, thickness')
+    %%% Check normal code carefully...
     
     % Pause to let matlab free memory (?)
     pause(0.1)
@@ -1071,12 +1089,12 @@ for iPoint = 1:nPoints %
     distanceMatrix(iPoint, :) = dMap(indsToInterpolate);
 end
 
-%save(sprintf('/Users/gavintaylor/Documents/Matlab/Temp_data/%s_%i_%i', 'distanceMatrix', edgeDistance, surfaceDistance), 'distanceMatrix');
+% save(sprintf('/Users/gavintaylor/Documents/Matlab/Temp_data/%s_%i_%i', 'distanceMatrix', edgeDistance, surfaceDistance), 'distanceMatrix');
 load('/Users/gavintaylor/Documents/Matlab/Temp_data/distanceMatrix_50_75.mat')
 
 % Save to prevent overwrite.
-%distanceMatrixSaver = distanceMatrix;
-%pPoint = iPoint;
+% distanceMatrixSaver = distanceMatrix;
+% pPoint = iPoint;
 
 % Debug plot - show colour maps. Tests well on 7
 figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
@@ -1086,7 +1104,10 @@ fscatter3(aleuroneSurfaceSubscriptArray(:,1),aleuroneSurfaceSubscriptArray(:,2),
     aleuroneSurfaceSubscriptArray(:,3),cols,jet(100));
 % plot3(subscriptsToInterpolate(pPoint,1), subscriptsToInterpolate(pPoint,2), ...
 %     subscriptsToInterpolate(pPoint,3),'mo', 'markersize',20);
-plot3(378,175,1651,'mo', 'markersize',20);
+% plot3(378,175,1651,'mo', 'markersize',20);
+plot3(subscriptsToInterpolate(iPoint,1), subscriptsToInterpolate(iPoint,2), ...
+    subscriptsToInterpolate(iPoint,3),'mo', 'markersize',20);
+
 
 % Debug plot - show series of slices 
 % dMap(isnan(dMap)) = 0;
@@ -1103,10 +1124,11 @@ plot3(378,175,1651,'mo', 'markersize',20);
 % plot3(aleuroneSurfaceSubscriptArray(inds,1),aleuroneSurfaceSubscriptArray(inds,2),...
 %      aleuroneSurfaceSubscriptArray(inds,3),'b.');
 %  
-% %Debug plot - show series of coloured points
+% % %Debug plot - show series of coloured points
 % inds = find(aleuroneSurfaceSubscriptArray(:,3) > 1600 & aleuroneSurfaceSubscriptArray(:,3) < 1700 & ...
 %     aleuroneSurfaceSubscriptArray(:,1) < 380);
-% cols = round(dMap(aleuroneSurfaceIndexList(inds))/max(100)*99) + 1;
+% inds = find(aleuroneSurfaceSubscriptArray(:,3) < 200);
+% cols = round(dMap(aleuroneSurfaceIndexList(inds))/max(dMap(aleuroneSurfaceIndexList(inds)))*99) + 1;
 % cols(isinf(cols)) = 110; cols(cols > 100) = 100;
 % figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
 % fscatter3(aleuroneSurfaceSubscriptArray(inds,1),aleuroneSurfaceSubscriptArray(inds,2),...
@@ -1136,6 +1158,8 @@ plot3(378,175,1651,'mo', 'markersize',20);
 % plot3(subscriptsToInterpolate(pPoint,1), subscriptsToInterpolate(pPoint,2), ...
 %     subscriptsToInterpolate(pPoint,3),'mo', 'markersize',20);
 
+clear aleuroneExterior, clear dMap
+
 %% Calculate unwrapping - based on tutorial on Numerical tours
 % https://nbviewer.jupyter.org/github/gpeyre/numerical-tours/blob/master/matlab/meshdeform_3_flattening.ipynb
 
@@ -1160,6 +1184,7 @@ U = U(:,I);
 figure; plot(S,'x-')
 
 % Map is determined by two largest values
+%%% Take three largest if considering manifold
 pointsUnwrapped = (U(:,1:2)' .* repmat(sqrt(S(1:2)), [1 nPoints]))';
 
 pointsUnwrapped = pointsUnwrapped/2;
@@ -1167,7 +1192,7 @@ pointsUnwrapped = pointsUnwrapped/2;
 %%% Should check how well diemsions are preserved during unwrapping.
 % D2 will go to Z, D1 will go to X, Y is set in middle
 
-%%% Need to majorly reshape new points to preserve dimensions. Done manuely for now
+%%% Need to majorly reshape new points to preserve dimensions. Done manually for now
 % Flip Y and add minimum
 pointsUnwrapped(:,2) = -pointsUnwrapped(:,2); 
 pointsUnwrapped(:,2) = pointsUnwrapped(:,2) - min(pointsUnwrapped(:,2));
@@ -1178,64 +1203,87 @@ pointsUnwrapped(:,1) = pointsUnwrapped(:,1)-mean(pointsUnwrapped(:,1))+volumeSiz
 
 targetSubscripts = [pointsUnwrapped(:,1) ones(size(pointsUnwrapped,1),1)*volumeSize(2)/2, pointsUnwrapped(:,2)];
 
-figure; hold on; axis equal; set(gca, 'Clipping', 'off')
+figure; 
+subplot(1, 2, 1); hold on; axis equal; set(gca, 'Clipping', 'off'); axis off
+
+plot3(endospermSurfaceSubscriptArray(:,1), endospermSurfaceSubscriptArray(:,2), ...
+    endospermSurfaceSubscriptArray(:,3), 'g.')
+
+plot3(germSurfaceSubscriptArray(:,1), germSurfaceSubscriptArray(:,2), ...
+    germSurfaceSubscriptArray(:,3), 'b.')
+
+plot3(aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), ...
+    aleuroneSurfaceSubscriptArray(:,3), 'y')
+
+plot3(aleuroneSurfaceSubscriptArray(surfacePointsChoosen,1), aleuroneSurfaceSubscriptArray(surfacePointsChoosen,2), ...
+    aleuroneSurfaceSubscriptArray(surfacePointsChoosen,3), 'bo')
+
+plot3(aleuroneEdgeSubscriptArray(edgePointsChoosen,1), aleuroneEdgeSubscriptArray(edgePointsChoosen,2), ...
+    aleuroneEdgeSubscriptArray(edgePointsChoosen,3), 'ro')
+
+% for i = 1:length(edgePointsChoosen)
+%     text(aleuroneEdgeSubscriptArray(edgePointsChoosen(i),1), aleuroneEdgeSubscriptArray(edgePointsChoosen(i),2), ...
+%     aleuroneEdgeSubscriptArray(edgePointsChoosen(i),3), sprintf('%i', i ));
+% end
+
+subplot(1, 2, 2); hold on; axis equal; set(gca, 'Clipping', 'off'); axis off
 plot3(targetSubscripts(1:length(surfacePointsChoosen),1), targetSubscripts(1:length(surfacePointsChoosen),2), ...
     targetSubscripts(1:length(surfacePointsChoosen),3), 'b.')
 
 plot3(targetSubscripts(length(surfacePointsChoosen)+1:end,1), targetSubscripts(length(surfacePointsChoosen)+1:end,2), ...
-    targetSubscripts(length(surfacePointsChoosen)+1:end,3), 'r.-')
-       
-for i = length(surfacePointsChoosen)+1:size(targetSubscripts,1)
-    text(targetSubscripts(i,1), targetSubscripts(i,2), targetSubscripts(i,3), sprintf('%i', i - length(surfacePointsChoosen)));
-end
+    targetSubscripts(length(surfacePointsChoosen)+1:end,3), 'r.')
 
-xlabel('x'); ylabel('y')
+warning('Add interpolation between points, check gnat')
 
-%figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
-plot3(aleuroneSurfaceSubscriptArray(surfacePointsChoosen,1), aleuroneSurfaceSubscriptArray(surfacePointsChoosen,2), ...
-    aleuroneSurfaceSubscriptArray(surfacePointsChoosen,3), 'b.')
+%%% Get distance bar by calculating distance between pairs of points in 2D
+%%% and then comparing to geodesic, take average as scale (variance?)
+warning('Add scale bar');
 
-plot3(aleuroneEdgeSubscriptArray(edgePointsChoosen,1), aleuroneEdgeSubscriptArray(edgePointsChoosen,2), ...
-    aleuroneEdgeSubscriptArray(edgePointsChoosen,3), 'r.')
-
-for i = 1:length(edgePointsChoosen)
-    text(aleuroneEdgeSubscriptArray(edgePointsChoosen(i),1), aleuroneEdgeSubscriptArray(edgePointsChoosen(i),2), ...
-    aleuroneEdgeSubscriptArray(edgePointsChoosen(i),3), sprintf('%i', i ));
-end
-
-xlabel('x'); ylabel('y')
+% for i = length(surfacePointsChoosen)+1:size(targetSubscripts,1)
+%     text(targetSubscripts(i,1), targetSubscripts(i,2), targetSubscripts(i,3), sprintf('%i', i - length(surfacePointsChoosen)));
+% end
 
 
-%clear aleuroneExterior, 
-clear dMap
-%clear grainExterior,
 %% Now use point_registration and bspline_transform to shift volumes.
 %%%% May wish to draw lines in from points (based on surface normal) to get
 %%% interior manifold. These points are then just measured distance beneath
 %%% others.
 
-options.MaxRef=1;
+%%% Other trick, try to do with interpolation. 
+% Get dense points on outer and inner surface. 
+% Have coordinates along linkage path.
+
+options.MaxRef=5;
 options.Verbose=true;
 
-[O_trans, Spacing] = point_registration(volumeSize([1 2 3]), subscriptsToInterpolate(:, [1 2 3]), ...
-    targetSubscripts(:, [1 2 3]), options);
+% Simply scaling down points and volume size speeds regularization up a lot...
+%%% Creates same results on reduced size image. May be better way to scale up?
+sF = 4;
+[O_trans, Spacing] = point_registration(round(volumeSize([1 2 3])/sF), subscriptsToInterpolate(:, [1 2 3])/sF, ...
+    targetSubscripts(:, [1 2 3])/sF, options);
 
 %%% Diffomorphic is require to prevent problems, but takes forever on full volume.
     % Try with one it of point placing (coase spacing). A bit faster...
-tic
-[O_trans,Spacing]=MakeDiffeomorphic(O_trans,Spacing,volumeSize);
-toc
+%%% Ok Regularize does not work, probably means b-spline is not goind to work.
+   % Doing manifold (with 3 dimensions from parameterization) may help
+   % enforce order on spline.
+ 
+% tic
+% [O_trans,Spacing]=MakeDiffeomorphic(O_trans,Spacing,round(volumeSize([1 2 3])/sF));
+% toc
 
 %%% Target points match exactly, other points are generally ok and lie on plane
-    %%% Although the border is quite wavy and some points cross between
-    %%% flanges near germ.
+    %%% Although the border is quite wavy 
+    %%% and some points cross between flanges near germ.
+       %%% sorting borders points so their order doesn't cross back and forth could help.
+       %%% Cross over occurs where misplaced points are...
 %%% Dense point sets helps a lot, but internal manifold will probably not assist with this.
 tic
 flatEdgeSubscriptArray = bspline_trans_points_double(O_trans, Spacing, ...
-    aleuroneEdgeSubscriptArray);
+    aleuroneEdgeSubscriptArray/sF)*sF;
 
 flatSurfaceSubscriptArray = bspline_trans_points_double(O_trans, Spacing, ...
-    aleuroneSurfaceSubscriptArray(1:100:end,:));
+    aleuroneSurfaceSubscriptArray(1:100:end,:)/sF)*sF;
     %
 toc
 
