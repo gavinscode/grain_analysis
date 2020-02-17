@@ -2,10 +2,11 @@
 clc; clear; close all
 
 % Other: Om_1_7_test
-targetDirectory = '/Users/gavintaylor/Documents/Company/Client Projects/Grain LU/Data/OB6_test/Labels';
+labelDirectory = '/Users/gavintaylor/Documents/Company/Client Projects/Grain LU/Data/OB6_test/Labels';
+greyDirectory = '/Users/gavintaylor/Documents/Company/Client Projects/Grain LU/Data/OB6_test/Images';
 
 % Loading tiff stack takes a while.
-grainVolume = loadtiffstack(targetDirectory, 1);
+grainVolume = loadtiffstack(labelDirectory, 1);
 
 %grainVolume = grainVolume(:,1:500,:);
 
@@ -26,6 +27,11 @@ s = settings; s.images.UseHalide.TemporaryValue = true;
 ALEURONE_INDEX = 1; % Material index.
 ENDOSPERM_INDEX = 2;
 GERM_INDEX = 3;
+
+VOXEL_SIZE = 4;
+
+% Flags
+calculateArea = 0; % Very time consuming.
 %% Get voxels on exterior of orignal grain by overlap to exterior.
 % Get pixels in grain.
 grainIndexList = find(grainVolume);
@@ -63,7 +69,7 @@ M3 = temp; M3(1:3,1:3) = transform2Up;
 
 M4 = make_transformation_matrix(volumeSize/2 - grainCenter);
 
-grainVolumeAligned = uint8(affine_transform_full(single(grainVolume), M1*M2*M3*M4, 5));
+grainVolumeAligned = uint8( affine_transform_full(single(grainVolume), M1*M2*M3*M4, 5));
 
 %%% Note small holes appear after affine transform, close fixes these. 
 %%% Probably bug with nearest neighbour interp I added to affine transform c file
@@ -950,17 +956,7 @@ nIndex = length(aleuroneEdgeIndexList); aleuroneEdgeSubscriptArray = zeros(nInde
 [aleuroneEdgeSubscriptArray(:,1), aleuroneEdgeSubscriptArray(:,2), aleuroneEdgeSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, aleuroneEdgeIndexList);
 
-
-
-figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
-% plot3(aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), ...
-%     aleuroneSurfaceSubscriptArray(:,3), 'b.')
-plot3(aleuroneEdgeSubscriptArray(:,1), aleuroneEdgeSubscriptArray(:,2), ...
-    aleuroneEdgeSubscriptArray(:,3), 'r.')
-
 [sum(aleuroneExterior(aleuroneSurfaceIndexList)) sum(aleuroneExterior(aleuroneEdgeIndexList))]
-
-
 
 % Get endosperm and germ surfaces for plotting.
 endospermSurfaceIndexList = find(grainExterior & (grainVolumeAligned == ENDOSPERM_INDEX));
@@ -977,7 +973,105 @@ nIndex = length(germSurfaceIndexList); germSurfaceSubscriptArray = zeros(nIndex,
 [germSurfaceSubscriptArray(:,1), germSurfaceSubscriptArray(:,2), germSurfaceSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, germSurfaceIndexList);
 
-clear aleuroneEdge, clear grainExterior
+clear aleuroneEdge
+
+%% Get subscripts and volume of interior aleurone surface
+%%% Would be good to get interior/exterior surface area of aleurone (probably also possible in amira).
+
+aleuroneInterior = grainVolumeAligned;
+
+aleuroneInterior(aleuroneInterior == ALEURONE_INDEX) = 0;
+
+% Aleruone interior label is currently endosperm and germ.
+aleuroneInterior = logical(aleuroneInterior);
+
+% Exterior is outer volume, and grow into other volume.
+aleuroneInterior = imdilate(aleuroneInterior, STREL_18_CONNECTED);
+
+aleuroneInterior = (grainVolumeAligned == ALEURONE_INDEX) & aleuroneInterior & ...
+    ~grainExterior;
+
+% Take largest connected region.
+tempCC = bwconncomp(aleuroneInterior, 18);
+
+tempStats = regionprops(tempCC, 'PixelIdxList');
+
+% Get number of voxels in each region. 
+nRegions = length(tempStats); voxelsPerRegionArray = zeros(nRegions,1);
+
+for iRegion = 1:nRegions
+    voxelsPerRegionArray(iRegion) = length(tempStats(iRegion).PixelIdxList);
+end
+
+% Largest will generally be much larger than others.
+[~, tempIndex] = max(voxelsPerRegionArray); tempStats(tempIndex) = [];
+
+% Remove other regions from volume.
+for iRegion = 1:nRegions-1
+    aleuroneInterior(tempStats(iRegion).PixelIdxList) = 0;
+end
+
+% Get aleurone interior surface subscripts.
+aleuroneInteriorIndexList = find(aleuroneInterior);
+
+nIndex = length(aleuroneInteriorIndexList); aleuroneInteriorSubscriptArray = zeros(nIndex, 3);
+
+[aleuroneInteriorSubscriptArray(:,1), aleuroneInteriorSubscriptArray(:,2), aleuroneInteriorSubscriptArray(:,3)] = ...
+    ind2sub(volumeSize, aleuroneInteriorIndexList);
+
+% Test plot.
+figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
+ plot3(aleuroneSurfaceSubscriptArray(1:1000:end,1), aleuroneSurfaceSubscriptArray(1:1000:end,2), ...
+     aleuroneSurfaceSubscriptArray(1:1000:end,3), 'b.')
+plot3(aleuroneEdgeSubscriptArray(:,1), aleuroneEdgeSubscriptArray(:,2), ...
+    aleuroneEdgeSubscriptArray(:,3), 'r.')
+ plot3(aleuroneInteriorSubscriptArray(1:100:end,1), aleuroneInteriorSubscriptArray(1:100:end,2), ...
+     aleuroneInteriorSubscriptArray(1:100:end,3), 'm.')
+
+%clear grainExterior
+
+%% Calculate surface area of aleurone exterior and interior
+%https://se.mathworks.com/matlabcentral/answers/93023-is-there-a-matlab-function-that-can-compute-the-area-of-my-patch
+% Matched Amira results closely for bee eye, should test for grain
+
+if calculateArea
+    warning('Test area calc matches Amira')
+    
+    %Exterior
+    tic
+    tempSurf = isosurface(aleuroneExterior,0.5);
+    toc
+    verts = tempSurf.vertices*VOXEL_SIZE;
+
+    faces = tempSurf.faces;
+
+    a = verts(faces(:, 2), :) - verts(faces(:, 1), :);
+
+    b = verts(faces(:, 3), :) - verts(faces(:, 1), :);
+
+    c = cross(a, b, 2);
+
+    aleuroneExteriorArea = 1/2 * sum(sqrt(sum(c.^2, 2)))/2;
+
+    %Interior
+    tic
+    tempSurf = isosurface(aleuroneInterior,0.5);
+    toc
+
+    verts = tempSurf.vertices*VOXEL_SIZE;
+
+    faces = tempSurf.faces;
+
+    a = verts(faces(:, 2), :) - verts(faces(:, 1), :);
+
+    b = verts(faces(:, 3), :) - verts(faces(:, 1), :);
+
+    c = cross(a, b, 2);
+
+    aleuroneInteriorArea = 1/2 * sum(sqrt(sum(c.^2, 2)))/2;
+
+    clear tempSurf
+end
 %% Allocate points equally across surface and border, as in bee
 edgePointsToChoose = 1:length(aleuroneEdgeIndexList);
 
@@ -992,10 +1086,11 @@ surfacePointsChoosen = zeros(length(aleuroneSurfaceIndexList),1);
 % for 50, 100, gives 121 309 points - ~7 hours
 % for 50, 75, gives 121 565 points - ~11 hours - go with this!
 % for 30, 75, gives 216 562 points - ~13 hours 
+% for 5, 20, gives 2072 8742 points - ~180 hours!
 
 % For test, seems good to get dense on border and moderate on surface
 
-edgeDistance = 25; 
+edgeDistance = 100; 
 
 surfaceDistance = 500;
 
@@ -1048,6 +1143,15 @@ plot3(aleuroneSurfaceSubscriptArray(surfacePointsChoosen,1), aleuroneSurfaceSubs
     aleuroneSurfaceSubscriptArray(surfacePointsChoosen,3), 'b.')
 plot3(aleuroneEdgeSubscriptArray(edgePointsChoosen,1), aleuroneEdgeSubscriptArray(edgePointsChoosen,2), ...
     aleuroneEdgeSubscriptArray(edgePointsChoosen,3), 'r.')
+%% Load grey image.
+% Loading tiff stack takes a while.
+greyVolume = loadtiffstack(greyDirectory, 1);
+
+greyVolumeAligned = uint8( affine_transform_full(single(greyVolume), M1*M2*M3*M4, 1));
+
+% Affine transform with linear interp. does not seem to have small holes problem.
+
+clear greyVolume
 %% Calulate distance between points
 
 %%% Test how is geodesic connectivity calculated - its 26
@@ -1067,30 +1171,91 @@ nPoints = length(indsToInterpolate);
 
 distanceMatrix = zeros(nPoints, nPoints);
 
-%%% Should be able to parallelize this.
+normalByPoint = zeros(nPoints, 3); 
+
+internalIntersectByPoint = zeros(nPoints, 3); 
+
+thicknessByPoint = zeros(nPoints, 1); 
+
+averageIntensityByPoint = zeros(nPoints, 1); 
 
 %%% Load in grey scale volume here for average calculations. 
 
-% Loop through geodesic distance calculations for each point than put into matrix.
-for iPoint = 1; %:nPoints %
+normalRadius = 200;
+
+grid3D.nx = volumeSize(1); grid3D.ny = volumeSize(2); grid3D.nz = volumeSize(3);
+grid3D.minBound = [1 1 1]';
+grid3D.maxBound = volumeSize(1)';
+
+% Loop through geodesic distance calculations for each point then put into matrix.
+for iPoint = 1:nPoints %
     tic
     dMap = bwdistgeodesic(aleuroneExterior, indsToInterpolate(iPoint),'quasi-euclidean');
     toc
-
-    %tempInd = sub2ind(volumeSize, 378, 175, 1651);
-    %dMap = bwdistgeodesic(aleuroneExterior, tempInd,'quasi-euclidean');
-    
-    warning('Get normal, average intensity, thickness')
-    %%% Check normal code carefully...
     
     % Pause to let matlab free memory (?)
     pause(0.1)
     
     distanceMatrix(iPoint, :) = dMap(indsToInterpolate);
+    
+    error('Need to test all of the following code.')
+    
+    % Also calculate normal and use to get thickness.
+    % Select points based on distance map to prevent picking points on both sides of crease.
+    indexListInRange = find(dMap(aleuroneSurfaceIndexList) < normalRadius);
+    
+    normalByPoint(iPoint,:) = normaltosurface( subscriptsToInterpolate(iPoint,:), ...
+        aleuroneSurfaceSubscriptArray(indexListInRange,:), [], [], normalRadius);
+    
+    coordsForward = round(subscriptsToInterpolate(iPoint,:) + normalByPoint(iPoint,:));
+    coordsBack = round(subscriptsToInterpolate(iPoint,:) - normalByPoint(iPoint,:));
+    
+    % Test normal points into aleurone
+    if grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) == ALEURONE_INDEX
+        % Should be ok.
+    elseif grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) == ALEURONE_INDEX
+        % Flip normal direction
+        normalByPoint(iPoint,:) = -normalByPoint(iPoint,:);
+    else
+        iPoint
+        error('Unclear normal direction')
+    end
+    
+    %Draw line in voxel space.
+    [tempX, tempY, tempZ] = amanatideswooalgorithm_efficient(subscriptsToInterpolate(iPoint,:), normalByPoint(iPoint,:), grid3D, 0);
+    
+    indexList = sub2ind(volumeSize, tempX, tempY, tempZ);
+    
+    % Find intersects
+    interiorIntersects = find(aleuroneInterior(indexList));
+    
+    % Test intersects are present/in correct  order.
+    if ~isempty(interiorIntersects)
+        % Check all points before are aleurone
+        if all(grainVolumeAligned(1:interiorIntersects(1)-1) == ALEURONE_INDEX) & ...
+                any(grainVolumeAligned(1:interiorIntersects(1)-1) ~= ALEURONE_INDEX)
+            
+                % Points is ok, record and thickness + intensity.
+                internalIntersectByPoint(iPoint,:) = [tempX(interiorIntersects(1)), ...
+                    tempY(interiorIntersects(1)), tempZ(interiorIntersects(1))]; 
+                
+                thicknessByPoint(iPoint,:) = sqrt((subscriptsToInterpolate(iPoint,1) - tempX(interiorIntersects(1)))^2 + ...
+                    (subscriptsToInterpolate(iPoint,2) - tempY(interiorIntersects(1)))^2 + ...
+                    (subscriptsToInterpolate(iPoint,3) - tempZ(interiorIntersects(1)))^2); 
+                
+                averageIntensityByPoint(iPoint) = mean( greyVolumeAligned(indexList(1:interiorIntersects(1))));
+        else
+            iPoint
+            error('Note all aleurone before interior intersect') 
+        end
+    else
+       iPoint
+       error('No interior intersect') 
+    end 
 end
 
-% save(sprintf('/Users/gavintaylor/Documents/Matlab/Temp_data/%s_%i_%i', 'distanceMatrix', edgeDistance, surfaceDistance), 'distanceMatrix');
-load('/Users/gavintaylor/Documents/Matlab/Temp_data/distanceMatrix_50_75.mat')
+save(sprintf('/Users/gavintaylor/Documents/Matlab/Temp_data/%s_%i_%i', 'distanceMatrix', edgeDistance, surfaceDistance), 'distanceMatrix');
+%load('/Users/gavintaylor/Documents/Matlab/Temp_data/distanceMatrix_50_75.mat')
 
 % Save to prevent overwrite.
 % distanceMatrixSaver = distanceMatrix;
@@ -1158,7 +1323,7 @@ plot3(subscriptsToInterpolate(iPoint,1), subscriptsToInterpolate(iPoint,2), ...
 % plot3(subscriptsToInterpolate(pPoint,1), subscriptsToInterpolate(pPoint,2), ...
 %     subscriptsToInterpolate(pPoint,3),'mo', 'markersize',20);
 
-clear aleuroneExterior, clear dMap
+clear aleuroneExterior, clear dMap, clear greyImageAligned
 
 %% Calculate unwrapping - based on tutorial on Numerical tours
 % https://nbviewer.jupyter.org/github/gpeyre/numerical-tours/blob/master/matlab/meshdeform_3_flattening.ipynb
@@ -1202,6 +1367,8 @@ pointsUnwrapped(:,1) = -pointsUnwrapped(:,1);
 pointsUnwrapped(:,1) = pointsUnwrapped(:,1)-mean(pointsUnwrapped(:,1))+volumeSize(1)/2;
 
 targetSubscripts = [pointsUnwrapped(:,1) ones(size(pointsUnwrapped,1),1)*volumeSize(2)/2, pointsUnwrapped(:,2)];
+
+warning('Test length distortion by comparing distance on plane to geodesic')
 
 figure; 
 subplot(1, 2, 1); hold on; axis equal; set(gca, 'Clipping', 'off'); axis off
