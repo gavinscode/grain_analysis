@@ -1090,7 +1090,7 @@ surfacePointsChoosen = zeros(length(aleuroneSurfaceIndexList),1);
 
 % For test, seems good to get dense on border and moderate on surface
 
-edgeDistance = 100; 
+edgeDistance = 500; 
 
 surfaceDistance = 500;
 
@@ -1138,11 +1138,13 @@ surfacePointsChoosen = find(surfacePointsChoosen);
 
 [length(edgePointsChoosen) length(surfacePointsChoosen)]
 
-figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
+tesFig = figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
 plot3(aleuroneSurfaceSubscriptArray(surfacePointsChoosen,1), aleuroneSurfaceSubscriptArray(surfacePointsChoosen,2), ...
-    aleuroneSurfaceSubscriptArray(surfacePointsChoosen,3), 'b.')
+    aleuroneSurfaceSubscriptArray(surfacePointsChoosen,3), 'go')
 plot3(aleuroneEdgeSubscriptArray(edgePointsChoosen,1), aleuroneEdgeSubscriptArray(edgePointsChoosen,2), ...
-    aleuroneEdgeSubscriptArray(edgePointsChoosen,3), 'r.')
+    aleuroneEdgeSubscriptArray(edgePointsChoosen,3), 'ro')
+plot3(aleuroneSurfaceSubscriptArray(1:100:end,1), aleuroneSurfaceSubscriptArray(1:100:end,2), ...
+     aleuroneSurfaceSubscriptArray(1:100:end,3), 'b.')
 %% Load grey image.
 % Loading tiff stack takes a while.
 greyVolume = loadtiffstack(greyDirectory, 1);
@@ -1169,23 +1171,25 @@ indsToInterpolate = sub2ind(volumeSize, subscriptsToInterpolate(:,1), subscripts
 
 nPoints = length(indsToInterpolate);
 
-distanceMatrix = zeros(nPoints, nPoints);
+distanceMatrix = zeros(nPoints, nPoints)*NaN;
 
-normalByPoint = zeros(nPoints, 3); 
+normalByPoint = zeros(nPoints, 3)*NaN; 
 
-internalIntersectByPoint = zeros(nPoints, 3); 
+internalIntersectByPoint = zeros(nPoints, 3)*NaN; 
 
-thicknessByPoint = zeros(nPoints, 1); 
+% Intenstiy and thickness may not be very useful for points on edge.
 
-averageIntensityByPoint = zeros(nPoints, 1); 
+thicknessByPoint = zeros(nPoints, 1)*NaN; 
+
+averageIntensityByPoint = zeros(nPoints, 1)*NaN; 
 
 %%% Load in grey scale volume here for average calculations. 
 
-normalRadius = 200;
+normalRadius = 100;
 
 grid3D.nx = volumeSize(1); grid3D.ny = volumeSize(2); grid3D.nz = volumeSize(3);
 grid3D.minBound = [1 1 1]';
-grid3D.maxBound = volumeSize(1)';
+grid3D.maxBound = volumeSize';
 
 % Loop through geodesic distance calculations for each point then put into matrix.
 for iPoint = 1:nPoints %
@@ -1198,7 +1202,7 @@ for iPoint = 1:nPoints %
     
     distanceMatrix(iPoint, :) = dMap(indsToInterpolate);
     
-    error('Need to test all of the following code.')
+    %error('Need to test all of the following code.')
     
     % Also calculate normal and use to get thickness.
     % Select points based on distance map to prevent picking points on both sides of crease.
@@ -1207,19 +1211,42 @@ for iPoint = 1:nPoints %
     normalByPoint(iPoint,:) = normaltosurface( subscriptsToInterpolate(iPoint,:), ...
         aleuroneSurfaceSubscriptArray(indexListInRange,:), [], [], normalRadius);
     
-    coordsForward = round(subscriptsToInterpolate(iPoint,:) + normalByPoint(iPoint,:));
-    coordsBack = round(subscriptsToInterpolate(iPoint,:) - normalByPoint(iPoint,:));
+    coordsForward = round(subscriptsToInterpolate(iPoint,:) + normalByPoint(iPoint,:)*2);
+    coordsBack = round(subscriptsToInterpolate(iPoint,:) - normalByPoint(iPoint,:)*2);
     
-    % Test normal points into aleurone
-    if grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) == ALEURONE_INDEX
+    %[grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) ...
+    %    grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3))]
+    
+    % Test normal points into aleurone, or otherwise they go into volume
+    if grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) == ALEURONE_INDEX && ...
+            grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) ~= ALEURONE_INDEX
         % Should be ok.
-    elseif grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) == ALEURONE_INDEX
+    elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) ~= ALEURONE_INDEX && ...
+            grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) == ALEURONE_INDEX
+        % Flip normal direction
+        normalByPoint(iPoint,:) = -normalByPoint(iPoint,:);
+    elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) > 0 && ...
+            grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) == 0
+        % Should be ok.
+    elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) == 0 && ...
+            grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) > 0
         % Flip normal direction
         normalByPoint(iPoint,:) = -normalByPoint(iPoint,:);
     else
         iPoint
         error('Unclear normal direction')
     end
+    
+    % Plot for testing - note line points out while normal actually points in.
+    figure(tesFig)
+    if iPoint < surfacePointsChoosen
+        lineColor = 'g';
+    else
+        lineColor = 'r';
+    end
+    line([0 -normalByPoint(iPoint,1)*100]+subscriptsToInterpolate(iPoint,1),...
+        [0 -normalByPoint(iPoint,2)*100]+subscriptsToInterpolate(iPoint,2), ...
+        [0 -normalByPoint(iPoint,3)*100]+subscriptsToInterpolate(iPoint,3), 'color', lineColor)
     
     %Draw line in voxel space.
     [tempX, tempY, tempZ] = amanatideswooalgorithm_efficient(subscriptsToInterpolate(iPoint,:), normalByPoint(iPoint,:), grid3D, 0);
@@ -1229,11 +1256,13 @@ for iPoint = 1:nPoints %
     % Find intersects
     interiorIntersects = find(aleuroneInterior(indexList));
     
+    interiorIntersects(interiorIntersects > 20) = [];
+    
     % Test intersects are present/in correct  order.
     if ~isempty(interiorIntersects)
         % Check all points before are aleurone
-        if all(grainVolumeAligned(1:interiorIntersects(1)-1) == ALEURONE_INDEX) & ...
-                any(grainVolumeAligned(1:interiorIntersects(1)-1) ~= ALEURONE_INDEX)
+        if all( grainVolumeAligned( indexList(1:(interiorIntersects(1)-1))) == ALEURONE_INDEX) & ...
+                ~any( grainVolumeAligned(indexList(1:(interiorIntersects(1)-1))) ~= ALEURONE_INDEX)
             
                 % Points is ok, record and thickness + intensity.
                 internalIntersectByPoint(iPoint,:) = [tempX(interiorIntersects(1)), ...
@@ -1243,18 +1272,23 @@ for iPoint = 1:nPoints %
                     (subscriptsToInterpolate(iPoint,2) - tempY(interiorIntersects(1)))^2 + ...
                     (subscriptsToInterpolate(iPoint,3) - tempZ(interiorIntersects(1)))^2); 
                 
-                averageIntensityByPoint(iPoint) = mean( greyVolumeAligned(indexList(1:interiorIntersects(1))));
+                averageIntensityByPoint(iPoint) = mean( greyVolumeAligned( indexList(1:interiorIntersects(1))));
+                
+                plot3(internalIntersectByPoint(iPoint,1), internalIntersectByPoint(iPoint,2), ...
+                    internalIntersectByPoint(iPoint,3),'mo');
         else
             iPoint
-            error('Note all aleurone before interior intersect') 
+            error('Not all aleurone before interior intersect') 
         end
     else
        iPoint
-       error('No interior intersect') 
+       warning('No interior intersect') 
     end 
 end
 
-save(sprintf('/Users/gavintaylor/Documents/Matlab/Temp_data/%s_%i_%i', 'distanceMatrix', edgeDistance, surfaceDistance), 'distanceMatrix');
+save(sprintf('/Users/gavintaylor/Documents/Matlab/Temp_data/%s_%i_%i', 'distanceMatrix', edgeDistance, surfaceDistance), ...
+    'distanceMatrix', 'subscriptsToInterpolate', 'normalByPoint', 'internalIntersectByPoint', ...
+    'thicknessByPoint', 'averageIntensityByPoint');
 %load('/Users/gavintaylor/Documents/Matlab/Temp_data/distanceMatrix_50_75.mat')
 
 % Save to prevent overwrite.

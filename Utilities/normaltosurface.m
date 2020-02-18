@@ -5,7 +5,7 @@ function [normal] = normaltosurface( pointCoords, surface, referenceCenter, flip
 
     % As in bee code, however, radius adjust from levels sets and height req. removed.
 
-    debugPlot = 1;
+    debugPlot = 0;
     
     if isempty(includeRange)
         includeRange = 50;   % A bit arbitary...
@@ -21,6 +21,11 @@ function [normal] = normaltosurface( pointCoords, surface, referenceCenter, flip
         
     [~, orignalPointInd] = min( sqrt( (surface(surfIndexs,1)-pointCoords(1)).^2 + ...
         (surface(surfIndexs,2)-pointCoords(2)).^2 + (surface(surfIndexs,3)-pointCoords(3)).^2));
+    
+    if debugPlot
+        subplot(1,2,1); hold on; axis equal
+        plot3(surface(surfIndexs,1), surface(surfIndexs,2), surface(surfIndexs,3), 'r.');
+    end
     
     % Rotate surface to axis of max variation.
     pointsCenter = mean(surface(surfIndexs,:));
@@ -73,6 +78,14 @@ function [normal] = normaltosurface( pointCoords, surface, referenceCenter, flip
     
     newPoints = newPoints - originOffset; 
 
+    if debugPlot
+         subplot(1,2,2); hold on; axis equal
+         plot3(newPoints(:,1), newPoints(:,2), newPoints(:,3), 'r.','markersize',20);
+         if ~isempty(referenceCenter)
+            line([0 referenceCenter(1)], [0 referenceCenter(2)], [0 referenceCenter(3)], 'color', 'r');
+         end
+    end
+    
     opts = fitoptions( 'Method', 'LinearLeastSquares' );
 
     % Can force convex, but not always true.
@@ -125,13 +138,13 @@ function [normal] = normaltosurface( pointCoords, surface, referenceCenter, flip
     end
     
     if debugPlot
-        line([closeP(1) pointToTest(1)+N(1)*100],[pointToTest(2) pointToTest(2)+N(2)*100] , [0 N(3)*100]);
+        line([pointToTest(1) pointToTest(1)+N(1)*100],[pointToTest(2) pointToTest(2)+N(2)*100] , [0 N(3)*100]);
     end
     
     normal = N*backwardsRotation;
 
     if debugPlot
-         subplot(1,3,1);
+         subplot(1,2,1);
          line([pointCoords(1) pointCoords(1)+normal(1)*50],[pointCoords(2) pointCoords(2)+normal(2)*50] , [pointCoords(3) pointCoords(3)+normal(3)*50]);
     end
 end
