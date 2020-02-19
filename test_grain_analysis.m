@@ -2,8 +2,11 @@
 clc; clear; close all
 
 % Other: Om_1_7_test
-labelDirectory = '/Users/gavintaylor/Documents/Company/Client Projects/Grain LU/Data/OB6_test/Labels';
-greyDirectory = '/Users/gavintaylor/Documents/Company/Client Projects/Grain LU/Data/OB6_test/Images';
+% labelDirectory = '/Users/gavintaylor/Documents/Company/Client Projects/Grain LU/Data/OB6_test/Labels';
+% greyDirectory = '/Users/gavintaylor/Documents/Company/Client Projects/Grain LU/Data/OB6_test/Images';
+
+labelDirectory = 'C:\Users\Admin\Lund University\Nick Sirijovski - Gavin\Data_for_ML_Test\OB6_test\Labels';
+greyDirectory = 'C:\Users\Admin\Lund University\Nick Sirijovski - Gavin\Data_for_ML_Test\OB6_test\Images';
 
 % Loading tiff stack takes a while.
 grainVolume = loadtiffstack(labelDirectory, 1);
@@ -887,7 +890,7 @@ grainExterior(tempIndexList(grainExterior(tempIndexList) == 1)) = 2;
 
 figure; imshow(sum(grainExterior(:,:,1623),3)/2)
 
-clear centreCurveVolume, 
+%clear centreCurveVolume, 
 
 %% Get exterior surface of aleurone.
 aleuroneExterior = (grainExterior == 1) & (grainVolumeAligned == ALEURONE_INDEX);
@@ -1088,9 +1091,15 @@ surfacePointsChoosen = zeros(length(aleuroneSurfaceIndexList),1);
 % for 30, 75, gives 216 562 points - ~13 hours 
 % for 5, 20, gives 2072 8742 points - ~180 hours!
 
+% Run time:
+% 60s per point on Mac
+% 17s on Windows, 
+    % 50-100s in parfor w/ 6 workers (picks up speed to 20-30 at end)
+    % 25-40s in parfor w/ 4 workers
+
 % For test, seems good to get dense on border and moderate on surface
 
-edgeDistance = 500; 
+edgeDistance = 200; 
 
 surfaceDistance = 500;
 
@@ -1191,8 +1200,14 @@ grid3D.nx = volumeSize(1); grid3D.ny = volumeSize(2); grid3D.nz = volumeSize(3);
 grid3D.minBound = [1 1 1]';
 grid3D.maxBound = volumeSize';
 
+%%% Parfor will use a crazy amount of memory, but doesn't cause crash
+%%% Note on 'Unexpected failure to indicate all intervals added' error from parfor
+    %%%Variable used in loop has probably been cleared, running without
+    %%%parfor is likely to cause errors as well
+
 % Loop through geodesic distance calculations for each point then put into matrix.
-for iPoint = 1:nPoints %
+parfor iPoint = 1:nPoints %
+%for iPoint = 6; 1:nPoints 
     tic
     dMap = bwdistgeodesic(aleuroneExterior, indsToInterpolate(iPoint),'quasi-euclidean');
     toc
@@ -1208,11 +1223,11 @@ for iPoint = 1:nPoints %
     % Select points based on distance map to prevent picking points on both sides of crease.
     indexListInRange = find(dMap(aleuroneSurfaceIndexList) < normalRadius);
     
-    normalByPoint(iPoint,:) = normaltosurface( subscriptsToInterpolate(iPoint,:), ...
+    tempNormal = normaltosurface( subscriptsToInterpolate(iPoint,:), ...
         aleuroneSurfaceSubscriptArray(indexListInRange,:), [], [], normalRadius);
     
-    coordsForward = round(subscriptsToInterpolate(iPoint,:) + normalByPoint(iPoint,:)*2);
-    coordsBack = round(subscriptsToInterpolate(iPoint,:) - normalByPoint(iPoint,:)*2);
+    coordsForward = round(subscriptsToInterpolate(iPoint,:) + tempNormal*2);
+    coordsBack = round(subscriptsToInterpolate(iPoint,:) - tempNormal*2);
     
     %[grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) ...
     %    grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3))]
@@ -1224,29 +1239,31 @@ for iPoint = 1:nPoints %
     elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) ~= ALEURONE_INDEX && ...
             grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) == ALEURONE_INDEX
         % Flip normal direction
-        normalByPoint(iPoint,:) = -normalByPoint(iPoint,:);
+        tempNormal = -tempNormal;
     elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) > 0 && ...
             grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) == 0
         % Should be ok.
     elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) == 0 && ...
             grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) > 0
         % Flip normal direction
-        normalByPoint(iPoint,:) = -normalByPoint(iPoint,:);
+        tempNormal = -tempNormal;
     else
         iPoint
         error('Unclear normal direction')
     end
     
+    normalByPoint(iPoint,:) = tempNormal;
+    
     % Plot for testing - note line points out while normal actually points in.
     figure(tesFig)
-    if iPoint < surfacePointsChoosen
-        lineColor = 'g';
-    else
-        lineColor = 'r';
-    end
-    line([0 -normalByPoint(iPoint,1)*100]+subscriptsToInterpolate(iPoint,1),...
-        [0 -normalByPoint(iPoint,2)*100]+subscriptsToInterpolate(iPoint,2), ...
-        [0 -normalByPoint(iPoint,3)*100]+subscriptsToInterpolate(iPoint,3), 'color', lineColor)
+%     if iPoint < surfacePointsChoosen
+%         lineColor = 'g';
+%     else
+%         lineColor = 'r';
+%     end
+%     line([0 -tempNormal(1)*100]+subscriptsToInterpolate(iPoint,1),...
+%         [0 -tempNormal(2)*100]+subscriptsToInterpolate(iPoint,2), ...
+%         [0 -tempNormal(3)*100]+subscriptsToInterpolate(iPoint,3), 'color', lineColor)
     
     %Draw line in voxel space.
     [tempX, tempY, tempZ] = amanatideswooalgorithm_efficient(subscriptsToInterpolate(iPoint,:), normalByPoint(iPoint,:), grid3D, 0);
@@ -1265,8 +1282,10 @@ for iPoint = 1:nPoints %
                 ~any( grainVolumeAligned(indexList(1:(interiorIntersects(1)-1))) ~= ALEURONE_INDEX)
             
                 % Points is ok, record and thickness + intensity.
-                internalIntersectByPoint(iPoint,:) = [tempX(interiorIntersects(1)), ...
+                tempIntersect = [tempX(interiorIntersects(1)), ...
                     tempY(interiorIntersects(1)), tempZ(interiorIntersects(1))]; 
+                
+                internalIntersectByPoint(iPoint,:) = tempIntersect;
                 
                 thicknessByPoint(iPoint,:) = sqrt((subscriptsToInterpolate(iPoint,1) - tempX(interiorIntersects(1)))^2 + ...
                     (subscriptsToInterpolate(iPoint,2) - tempY(interiorIntersects(1)))^2 + ...
@@ -1274,11 +1293,11 @@ for iPoint = 1:nPoints %
                 
                 averageIntensityByPoint(iPoint) = mean( greyVolumeAligned( indexList(1:interiorIntersects(1))));
                 
-                plot3(internalIntersectByPoint(iPoint,1), internalIntersectByPoint(iPoint,2), ...
-                    internalIntersectByPoint(iPoint,3),'mo');
+                plot3(tempIntersect(1), tempIntersect(2), ...
+                    tempIntersect(3),'mo');
         else
             iPoint
-            error('Not all aleurone before interior intersect') 
+            warning('Not all aleurone before interior intersect') 
         end
     else
        iPoint
@@ -1286,7 +1305,7 @@ for iPoint = 1:nPoints %
     end 
 end
 
-save(sprintf('/Users/gavintaylor/Documents/Matlab/Temp_data/%s_%i_%i', 'distanceMatrix', edgeDistance, surfaceDistance), ...
+save(sprintf('C:\Users\Admin\Documents\MATLAB\Temp_data\%s_%i_%i', 'distanceMatrix', edgeDistance, surfaceDistance), ...
     'distanceMatrix', 'subscriptsToInterpolate', 'normalByPoint', 'internalIntersectByPoint', ...
     'thicknessByPoint', 'averageIntensityByPoint');
 %load('/Users/gavintaylor/Documents/Matlab/Temp_data/distanceMatrix_50_75.mat')
@@ -1296,17 +1315,16 @@ save(sprintf('/Users/gavintaylor/Documents/Matlab/Temp_data/%s_%i_%i', 'distance
 % pPoint = iPoint;
 
 % Debug plot - show colour maps. Tests well on 7
-figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
-cols = round(dMap(aleuroneSurfaceIndexList)/max(distanceMatrix(:))*99) + 1;
-cols(isinf(cols)) = 110;
-fscatter3(aleuroneSurfaceSubscriptArray(:,1),aleuroneSurfaceSubscriptArray(:,2),...
-    aleuroneSurfaceSubscriptArray(:,3),cols,jet(100));
-% plot3(subscriptsToInterpolate(pPoint,1), subscriptsToInterpolate(pPoint,2), ...
-%     subscriptsToInterpolate(pPoint,3),'mo', 'markersize',20);
-% plot3(378,175,1651,'mo', 'markersize',20);
-plot3(subscriptsToInterpolate(iPoint,1), subscriptsToInterpolate(iPoint,2), ...
-    subscriptsToInterpolate(iPoint,3),'mo', 'markersize',20);
-
+% figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
+% cols = round(dMap(aleuroneSurfaceIndexList)/max(distanceMatrix(:))*99) + 1;
+% cols(isinf(cols)) = 110;
+% fscatter3(aleuroneSurfaceSubscriptArray(:,1),aleuroneSurfaceSubscriptArray(:,2),...
+%     aleuroneSurfaceSubscriptArray(:,3),cols,jet(100));
+% % plot3(subscriptsToInterpolate(pPoint,1), subscriptsToInterpolate(pPoint,2), ...
+% %     subscriptsToInterpolate(pPoint,3),'mo', 'markersize',20);
+% % plot3(378,175,1651,'mo', 'markersize',20);
+% plot3(subscriptsToInterpolate(iPoint,1), subscriptsToInterpolate(iPoint,2), ...
+%     subscriptsToInterpolate(iPoint,3),'mo', 'markersize',20);
 
 % Debug plot - show series of slices 
 % dMap(isnan(dMap)) = 0;
@@ -1357,7 +1375,8 @@ plot3(subscriptsToInterpolate(iPoint,1), subscriptsToInterpolate(iPoint,2), ...
 % plot3(subscriptsToInterpolate(pPoint,1), subscriptsToInterpolate(pPoint,2), ...
 %     subscriptsToInterpolate(pPoint,3),'mo', 'markersize',20);
 
-clear aleuroneExterior, clear dMap, clear greyImageAligned
+%clear dMap, 
+%clear aleuroneExterior, clear greyImageAligned, clear aleuroneInterior
 
 %% Calculate unwrapping - based on tutorial on Numerical tours
 % https://nbviewer.jupyter.org/github/gpeyre/numerical-tours/blob/master/matlab/meshdeform_3_flattening.ipynb
