@@ -35,6 +35,7 @@ VOXEL_SIZE = 4;
 
 % Flags
 calculateArea = 0; % Very time consuming.
+testPlotNormals = 0;
 %% Get voxels on exterior of orignal grain by overlap to exterior.
 % Get pixels in grain.
 grainIndexList = find(grainVolume);
@@ -917,6 +918,8 @@ end
 
 
 
+warning('Keep hole borders to use on 2D map')
+
 % Get edge of aleurone surface.
 aleuroneEdge = imdilate(grainExterior & (grainVolumeAligned == ENDOSPERM_INDEX | ...
     grainVolumeAligned == GERM_INDEX | grainExterior == 2), STREL_18_CONNECTED);
@@ -1084,24 +1087,24 @@ edgePointsChoosen = zeros(length(aleuroneEdgeIndexList),1);
 
 surfacePointsChoosen = zeros(length(aleuroneSurfaceIndexList),1);
 
-% for 300, 500 gives 12 9 points - ~20 minutes, but this does not unwrap nicely
-% for 20, 50, gives 343 1314 points - ~27 hours
-% for 50, 100, gives 121 309 points - ~7 hours
-% for 50, 75, gives 121 565 points - ~11 hours - go with this!
-% for 30, 75, gives 216 562 points - ~13 hours 
-% for 5, 20, gives 2072 8742 points - ~180 hours!
+% for 300, 500 gives 12 9 points 
+% for 20, 50, gives 343 1314 points 
+% for 50, 100, gives 121 309 points 
+% for 50, 75, gives 121 565 points 
+% for 30, 75, gives 216 562 points  
+% for 5, 20, gives 2072 8742 points  
 
 % Run time:
 % 60s per point on Mac
 % 17s on Windows, 
-    % 50-100s in parfor w/ 6 workers (picks up speed to 20-30 at end)
-    % 25-40s in parfor w/ 4 workers
+    % 50-100s in parfor w/ 6 workers (picks up speed to 20-30 at end) avg 12s
+    % 25-40s in parfor w/ 4 workers avg 8s
 
 % For test, seems good to get dense on border and moderate on surface
 
-edgeDistance = 200; 
+edgeDistance = 10; 
 
-surfaceDistance = 500;
+surfaceDistance = 50;
 
 % Test edge points first. Select from top of germ (max Y)
 while ~isempty(edgePointsToChoose)
@@ -1207,7 +1210,7 @@ grid3D.maxBound = volumeSize';
 
 % Loop through geodesic distance calculations for each point then put into matrix.
 parfor iPoint = 1:nPoints %
-%for iPoint = 6; 1:nPoints 
+%for iPoint = %1:nPoints 
     tic
     dMap = bwdistgeodesic(aleuroneExterior, indsToInterpolate(iPoint),'quasi-euclidean');
     toc
@@ -1226,86 +1229,104 @@ parfor iPoint = 1:nPoints %
     tempNormal = normaltosurface( subscriptsToInterpolate(iPoint,:), ...
         aleuroneSurfaceSubscriptArray(indexListInRange,:), [], [], normalRadius);
     
-    coordsForward = round(subscriptsToInterpolate(iPoint,:) + tempNormal*2);
-    coordsBack = round(subscriptsToInterpolate(iPoint,:) - tempNormal*2);
+    gotDirection = 0;
+    scale = 1;
     
-    %[grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) ...
-    %    grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3))]
+    % Keeping testing normals until correct solution determined.
+    while ~gotDirection && scale < 10
+        
+        coordsForward = round(subscriptsToInterpolate(iPoint,:) + tempNormal*scale);
+        coordsBack = round(subscriptsToInterpolate(iPoint,:) - tempNormal*scale);  
     
-    % Test normal points into aleurone, or otherwise they go into volume
-    if grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) == ALEURONE_INDEX && ...
-            grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) ~= ALEURONE_INDEX
-        % Should be ok.
-    elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) ~= ALEURONE_INDEX && ...
-            grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) == ALEURONE_INDEX
-        % Flip normal direction
-        tempNormal = -tempNormal;
-    elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) > 0 && ...
-            grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) == 0
-        % Should be ok.
-    elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) == 0 && ...
-            grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) > 0
-        % Flip normal direction
-        tempNormal = -tempNormal;
-    else
-        iPoint
-        error('Unclear normal direction')
+        % Test normal points into aleurone, or otherwise they go into volume
+        if grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) == ALEURONE_INDEX && ...
+                grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) ~= ALEURONE_INDEX
+            % Should be ok.
+            gotDirection = 1;
+        elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) ~= ALEURONE_INDEX && ...
+                grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) == ALEURONE_INDEX
+            % Flip normal direction
+            tempNormal = -tempNormal;
+            gotDirection = 1;
+        elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) > 0 && ...
+                grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) == 0
+            % Should be ok.
+            gotDirection = 1;
+        elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) == 0 && ...
+                grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) > 0
+            % Flip normal direction
+            tempNormal = -tempNormal;
+            gotDirection = 1;
+        end
+        
+        scale = scale + 1;
     end
     
-    normalByPoint(iPoint,:) = tempNormal;
+    % Just continue if direction found.
+    if gotDirection
     
-    % Plot for testing - note line points out while normal actually points in.
-    figure(tesFig)
-%     if iPoint < surfacePointsChoosen
-%         lineColor = 'g';
-%     else
-%         lineColor = 'r';
-%     end
-%     line([0 -tempNormal(1)*100]+subscriptsToInterpolate(iPoint,1),...
-%         [0 -tempNormal(2)*100]+subscriptsToInterpolate(iPoint,2), ...
-%         [0 -tempNormal(3)*100]+subscriptsToInterpolate(iPoint,3), 'color', lineColor)
-    
-    %Draw line in voxel space.
-    [tempX, tempY, tempZ] = amanatideswooalgorithm_efficient(subscriptsToInterpolate(iPoint,:), normalByPoint(iPoint,:), grid3D, 0);
-    
-    indexList = sub2ind(volumeSize, tempX, tempY, tempZ);
-    
-    % Find intersects
-    interiorIntersects = find(aleuroneInterior(indexList));
-    
-    interiorIntersects(interiorIntersects > 20) = [];
-    
-    % Test intersects are present/in correct  order.
-    if ~isempty(interiorIntersects)
-        % Check all points before are aleurone
-        if all( grainVolumeAligned( indexList(1:(interiorIntersects(1)-1))) == ALEURONE_INDEX) & ...
-                ~any( grainVolumeAligned(indexList(1:(interiorIntersects(1)-1))) ~= ALEURONE_INDEX)
-            
-                % Points is ok, record and thickness + intensity.
-                tempIntersect = [tempX(interiorIntersects(1)), ...
-                    tempY(interiorIntersects(1)), tempZ(interiorIntersects(1))]; 
-                
-                internalIntersectByPoint(iPoint,:) = tempIntersect;
-                
-                thicknessByPoint(iPoint,:) = sqrt((subscriptsToInterpolate(iPoint,1) - tempX(interiorIntersects(1)))^2 + ...
-                    (subscriptsToInterpolate(iPoint,2) - tempY(interiorIntersects(1)))^2 + ...
-                    (subscriptsToInterpolate(iPoint,3) - tempZ(interiorIntersects(1)))^2); 
-                
-                averageIntensityByPoint(iPoint) = mean( greyVolumeAligned( indexList(1:interiorIntersects(1))));
-                
-                plot3(tempIntersect(1), tempIntersect(2), ...
-                    tempIntersect(3),'mo');
-        else
-            iPoint
-            warning('Not all aleurone before interior intersect') 
+        normalByPoint(iPoint,:) = tempNormal;
+
+        % Plot for testing - note line points out while normal actually points in.
+        if testPlotNormals
+            figure(tesFig)
+            if iPoint < surfacePointsChoosen
+                lineColor = 'g';
+            else
+                lineColor = 'r';
+            end
+            line([0 -tempNormal(1)*100]+subscriptsToInterpolate(iPoint,1),...
+                [0 -tempNormal(2)*100]+subscriptsToInterpolate(iPoint,2), ...
+                [0 -tempNormal(3)*100]+subscriptsToInterpolate(iPoint,3), 'color', lineColor)
         end
+        
+        %Draw line in voxel space.
+        [tempX, tempY, tempZ] = amanatideswooalgorithm_efficient(subscriptsToInterpolate(iPoint,:), normalByPoint(iPoint,:), grid3D, 0);
+
+        indexList = sub2ind(volumeSize, tempX, tempY, tempZ);
+
+        % Find intersects
+        interiorIntersects = find(aleuroneInterior(indexList));
+
+        interiorIntersects(interiorIntersects > 20) = [];
+
+        % Test intersects are present/in correct  order.
+        if ~isempty(interiorIntersects)
+            % Check all points before are aleurone
+            if all( grainVolumeAligned( indexList(1:(interiorIntersects(1)-1))) == ALEURONE_INDEX) & ...
+                    ~any( grainVolumeAligned(indexList(1:(interiorIntersects(1)-1))) ~= ALEURONE_INDEX)
+
+                    % Points is ok, record and thickness + intensity.
+                    tempIntersect = [tempX(interiorIntersects(1)), ...
+                        tempY(interiorIntersects(1)), tempZ(interiorIntersects(1))]; 
+
+                    internalIntersectByPoint(iPoint,:) = tempIntersect;
+
+                    thicknessByPoint(iPoint,:) = sqrt((subscriptsToInterpolate(iPoint,1) - tempX(interiorIntersects(1)))^2 + ...
+                        (subscriptsToInterpolate(iPoint,2) - tempY(interiorIntersects(1)))^2 + ...
+                        (subscriptsToInterpolate(iPoint,3) - tempZ(interiorIntersects(1)))^2); 
+
+                    averageIntensityByPoint(iPoint) = mean( greyVolumeAligned( indexList(1:interiorIntersects(1))));
+
+                    if testPlotNormals
+                        plot3(tempIntersect(1), tempIntersect(2), ...
+                            tempIntersect(3),'mo');
+                    end
+            else
+                iPoint
+                warning('Not all aleurone before interior intersect');
+            end
+        else
+           iPoint
+           warning('No interior intersect');
+        end 
     else
        iPoint
-       warning('No interior intersect') 
-    end 
+       warning('Direction could not be determined');
+    end
 end
 
-save(sprintf('C:\Users\Admin\Documents\MATLAB\Temp_data\%s_%i_%i', 'distanceMatrix', edgeDistance, surfaceDistance), ...
+save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i', 'distanceMatrix', edgeDistance, surfaceDistance), ...
     'distanceMatrix', 'subscriptsToInterpolate', 'normalByPoint', 'internalIntersectByPoint', ...
     'thicknessByPoint', 'averageIntensityByPoint');
 %load('/Users/gavintaylor/Documents/Matlab/Temp_data/distanceMatrix_50_75.mat')
@@ -1472,6 +1493,8 @@ warning('Add scale bar');
 %%% Other trick, try to do with interpolation. 
 % Get dense points on outer and inner surface. 
 % Have coordinates along linkage path.
+
+warning('Check if interior manifold would help bspline hold together')
 
 options.MaxRef=5;
 options.Verbose=true;
