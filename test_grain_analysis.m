@@ -1123,7 +1123,7 @@ while ~isempty(edgePointsToChoose)
     
     indsToRemove = find( sqrt( (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,1) - pointChoosen(1)).^2 + ...
         (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,2) - pointChoosen(2)).^2 + ...
-        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,3) - pointChoosen(3)).^2) < surfaceDistance);
+        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,3) - pointChoosen(3)).^2) < edgeDistance);
     
     surfacePointsToChoose(indsToRemove) = [];
 end
@@ -1326,9 +1326,10 @@ parfor iPoint = 1:nPoints %
     end
 end
 
-save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i', 'distanceMatrix', edgeDistance, surfaceDistance), ...
-    'distanceMatrix', 'subscriptsToInterpolate', 'normalByPoint', 'internalIntersectByPoint', ...
-    'thicknessByPoint', 'averageIntensityByPoint');
+% save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i', 'distanceMatrix', edgeDistance, surfaceDistance), ...
+%     'distanceMatrix', 'subscriptsToInterpolate', 'normalByPoint', 'internalIntersectByPoint', ...
+%     'thicknessByPoint', 'averageIntensityByPoint');
+
 %load('/Users/gavintaylor/Documents/Matlab/Temp_data/distanceMatrix_50_75.mat')
 
 % Save to prevent overwrite.
@@ -1467,14 +1468,15 @@ plot3(aleuroneEdgeSubscriptArray(edgePointsChoosen,1), aleuroneEdgeSubscriptArra
 %     aleuroneEdgeSubscriptArray(edgePointsChoosen(i),3), sprintf('%i', i ));
 % end
 
+surfaceIndexList = 1:length(surfacePointsChoosen);
+edgeIndexList = length(surfacePointsChoosen)+1:size(targetSubscripts,1);
+
 subplot(1, 2, 2); hold on; axis equal; set(gca, 'Clipping', 'off'); axis off
-plot3(targetSubscripts(1:length(surfacePointsChoosen),1), targetSubscripts(1:length(surfacePointsChoosen),2), ...
-    targetSubscripts(1:length(surfacePointsChoosen),3), 'b.')
+plot3(targetSubscripts(surfaceIndexList,1), targetSubscripts(surfaceIndexList,2), ...
+    targetSubscripts(surfaceIndexList,3), 'b.')
 
-plot3(targetSubscripts(length(surfacePointsChoosen)+1:end,1), targetSubscripts(length(surfacePointsChoosen)+1:end,2), ...
-    targetSubscripts(length(surfacePointsChoosen)+1:end,3), 'r.')
-
-warning('Add interpolation between points, check gnat')
+plot3(targetSubscripts(edgeIndexList,1), targetSubscripts(edgeIndexList,2), ...
+    targetSubscripts(edgeIndexList,3), 'r.')
 
 %%% Get distance bar by calculating distance between pairs of points in 2D
 %%% and then comparing to geodesic, take average as scale (variance?)
@@ -1484,7 +1486,93 @@ warning('Add scale bar');
 %     text(targetSubscripts(i,1), targetSubscripts(i,2), targetSubscripts(i,3), sprintf('%i', i - length(surfacePointsChoosen)));
 % end
 
+%% Create nice image plotting
 
+% Firstly create closed loop, similar problem as bee FOV
+% Just based on angles to start with, can add TSP for more complicated shapes
+sortedEdgeSubscripts = targetSubscripts(edgeIndexList, [1 3]); 
+%createSortedLoopwithTSP(targetSubscripts(edgeIndexList, [1 3]));
+
+% Mirror or claculations on full set of subscripts so they match sorted egde.
+offSetFullSubscripts = targetSubscripts(:, [1 3]);
+
+offSetFullSubscripts(:,1) = offSetFullSubscripts(:,1) - mean(sortedEdgeSubscripts(:,1));
+
+offSetFullSubscripts(:,2) = offSetFullSubscripts(:,2) - mean(sortedEdgeSubscripts(:,2));
+
+
+
+sortedEdgeSubscripts(:,1) = sortedEdgeSubscripts(:,1) - mean(sortedEdgeSubscripts(:,1));
+
+sortedEdgeSubscripts(:,2) = sortedEdgeSubscripts(:,2) - mean(sortedEdgeSubscripts(:,2));
+
+angles = atan2(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2));
+        
+[~,  edgeIndexListSorted] = sort(angles);
+
+edgeIndexListSorted = [edgeIndexListSorted' edgeIndexListSorted(1)];
+
+sortedEdgeSubscripts = sortedEdgeSubscripts(edgeIndexListSorted, :);
+       
+figure; hold on;
+
+plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2))
+
+% Create 2D map for plotting.
+xRange = ceil(max(sortedEdgeSubscripts(:,1)) - min(sortedEdgeSubscripts(:,1)) + 10);
+
+% Mirror Y for image orientation 
+sortedEdgeSubscripts(:,2) = -sortedEdgeSubscripts(:,2);
+
+offSetFullSubscripts(:,2) = -offSetFullSubscripts(:,2);
+
+
+
+yRange = ceil(max(sortedEdgeSubscripts(:,2)) - min(sortedEdgeSubscripts(:,2)) + 10);
+
+offSetFullSubscripts(:,1) = offSetFullSubscripts(:,1) - min(sortedEdgeSubscripts(:,1)) + 5;
+
+offSetFullSubscripts(:,2) = offSetFullSubscripts(:,2) - min(sortedEdgeSubscripts(:,2)) + 5;
+
+sortedEdgeSubscripts(:,1) = sortedEdgeSubscripts(:,1) - min(sortedEdgeSubscripts(:,1)) + 5;
+
+sortedEdgeSubscripts(:,2) = sortedEdgeSubscripts(:,2) - min(sortedEdgeSubscripts(:,2)) + 5;
+
+
+
+image2Plot = zeros(xRange , yRange);
+
+% Test which points on map are within aleurone border.
+[X, Y] = meshgrid(1:xRange, 1:yRange);
+
+X = X(:); Y = Y(:);
+
+[in, on] = inpolygon(X, Y, sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2));
+
+for iPixel = 1:length(in)
+    
+    if in(iPixel) || on(iPixel)
+        
+        image2Plot(X(iPixel), Y(iPixel)) = 1;
+    end
+end
+
+figure; imshow(image2Plot'); hold on;
+
+plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2))
+
+plot(offSetFullSubscripts(:,1), offSetFullSubscripts(:,2), '.')
+
+% Create images using scattered interpolant
+%%% Probalby want to include exterior pixels and set to 0
+
+% fovInterpolant = scatteredInterpolant( sphereAzs, sphereEls, inFOVLeft, 'linear','nearest');
+%     fovImageLeft = zeros(length(imAz), length(imEl));
+%     fovImageLeft(:) = round(fovInterpolant(imCoordsAz(:), imCoordsEl(:)));
+
+%figure; hist(thicknessByPoint,100)
+
+%figure; hist(averageIntensityByPoint,100)
 %% Now use point_registration and bspline_transform to shift volumes.
 %%%% May wish to draw lines in from points (based on surface normal) to get
 %%% interior manifold. These points are then just measured distance beneath
