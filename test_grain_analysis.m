@@ -1104,7 +1104,7 @@ surfacePointsChoosen = zeros(length(aleuroneSurfaceIndexList),1);
 
 edgeDistance = 10; 
 
-surfaceDistance = 50;
+surfaceDistance = 20;
 
 % Test edge points first. Select from top of germ (max Y)
 while ~isempty(edgePointsToChoose)
@@ -1209,6 +1209,8 @@ grid3D.maxBound = volumeSize';
     %%%parfor is likely to cause errors as well
 
 % Loop through geodesic distance calculations for each point then put into matrix.
+parpool('local', 4)
+
 parfor iPoint = 1:nPoints %
 %for iPoint = %1:nPoints 
     tic
@@ -1326,9 +1328,9 @@ parfor iPoint = 1:nPoints %
     end
 end
 
-% save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i', 'distanceMatrix', edgeDistance, surfaceDistance), ...
-%     'distanceMatrix', 'subscriptsToInterpolate', 'normalByPoint', 'internalIntersectByPoint', ...
-%     'thicknessByPoint', 'averageIntensityByPoint');
+save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i', 'distanceMatrix', edgeDistance, surfaceDistance), ...
+    'distanceMatrix', 'subscriptsToInterpolate', 'normalByPoint', 'internalIntersectByPoint', ...
+    'thicknessByPoint', 'averageIntensityByPoint');
 
 %load('/Users/gavintaylor/Documents/Matlab/Temp_data/distanceMatrix_50_75.mat')
 
@@ -1435,33 +1437,59 @@ pointsUnwrapped = pointsUnwrapped/2;
 %%% Need to majorly reshape new points to preserve dimensions. Done manually for now
 % Flip Y and add minimum
 pointsUnwrapped(:,2) = -pointsUnwrapped(:,2); 
-pointsUnwrapped(:,2) = pointsUnwrapped(:,2) - min(pointsUnwrapped(:,2));
+pointsUnwrapped(:,2) = pointsUnwrapped(:,2) - mean(pointsUnwrapped(:,2));
 
 %Flip X, center
 pointsUnwrapped(:,1) = -pointsUnwrapped(:,1);
-pointsUnwrapped(:,1) = pointsUnwrapped(:,1)-mean(pointsUnwrapped(:,1))+volumeSize(1)/2;
+pointsUnwrapped(:,1) = pointsUnwrapped(:,1)-mean(pointsUnwrapped(:,1));
+
+% Apply scalling, get points closest to zero X above and below Z zero.
+indexListAbove = find( pointsUnwrapped(edgeIndexList, 2) > 0);
+
+[~, closestAbove] = min( abs( pointsUnwrapped(edgeIndexList(indexListAbove), 1)));
+
+indexAbove = (indexListAbove(closestAbove));
+
+indexListBelow = find( pointsUnwrapped(edgeIndexList, 2) < 0);
+
+[~, closestBelow] = min( abs( pointsUnwrapped(edgeIndexList(indexListBelow), 1)));
+
+indexBelow = (indexListBelow(closestBelow));
+
+%scale based on relative distances
+unwrappedDistance = sqrt((pointsUnwrapped(edgeIndexList(indexAbove),1) - pointsUnwrapped(edgeIndexList(indexBelow),1)).^2 +...
+    (pointsUnwrapped(edgeIndexList(indexAbove),2) - pointsUnwrapped(edgeIndexList(indexBelow),2)).^2);
+
+surfaceDistance = distanceMatrix(edgeIndexList(indexAbove), edgeIndexList(indexBelow));
+
+pointsUnwrapped = pointsUnwrapped/unwrappedDistance*surfaceDistance;
 
 targetSubscripts = [pointsUnwrapped(:,1) ones(size(pointsUnwrapped,1),1)*volumeSize(2)/2, pointsUnwrapped(:,2)];
 
-warning('Test length distortion by comparing distance on plane to geodesic')
+
 
 figure; 
 subplot(1, 2, 1); hold on; axis equal; set(gca, 'Clipping', 'off'); axis off
 
-plot3(endospermSurfaceSubscriptArray(:,1), endospermSurfaceSubscriptArray(:,2), ...
-    endospermSurfaceSubscriptArray(:,3), 'g.')
-
-plot3(germSurfaceSubscriptArray(:,1), germSurfaceSubscriptArray(:,2), ...
-    germSurfaceSubscriptArray(:,3), 'b.')
-
-plot3(aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), ...
-    aleuroneSurfaceSubscriptArray(:,3), 'y')
+% plot3(endospermSurfaceSubscriptArray(:,1), endospermSurfaceSubscriptArray(:,2), ...
+%     endospermSurfaceSubscriptArray(:,3), 'g.')
+% 
+% plot3(germSurfaceSubscriptArray(:,1), germSurfaceSubscriptArray(:,2), ...
+%     germSurfaceSubscriptArray(:,3), 'b.')
+% 
+% plot3(aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), ...
+%     aleuroneSurfaceSubscriptArray(:,3), 'y')
 
 plot3(aleuroneSurfaceSubscriptArray(surfacePointsChoosen,1), aleuroneSurfaceSubscriptArray(surfacePointsChoosen,2), ...
     aleuroneSurfaceSubscriptArray(surfacePointsChoosen,3), 'bo')
 
 plot3(aleuroneEdgeSubscriptArray(edgePointsChoosen,1), aleuroneEdgeSubscriptArray(edgePointsChoosen,2), ...
     aleuroneEdgeSubscriptArray(edgePointsChoosen,3), 'ro')
+
+line([aleuroneEdgeSubscriptArray(edgePointsChoosen(indexBelow),1) aleuroneEdgeSubscriptArray(edgePointsChoosen(indexAbove),1)],...
+    [aleuroneEdgeSubscriptArray(edgePointsChoosen(indexBelow),2) aleuroneEdgeSubscriptArray(edgePointsChoosen(indexAbove),2)],...
+    [aleuroneEdgeSubscriptArray(edgePointsChoosen(indexBelow),3) aleuroneEdgeSubscriptArray(edgePointsChoosen(indexAbove),3)],...
+    'color', 'm', 'linewidth', 2);
 
 % for i = 1:length(edgePointsChoosen)
 %     text(aleuroneEdgeSubscriptArray(edgePointsChoosen(i),1), aleuroneEdgeSubscriptArray(edgePointsChoosen(i),2), ...
@@ -1478,9 +1506,13 @@ plot3(targetSubscripts(surfaceIndexList,1), targetSubscripts(surfaceIndexList,2)
 plot3(targetSubscripts(edgeIndexList,1), targetSubscripts(edgeIndexList,2), ...
     targetSubscripts(edgeIndexList,3), 'r.')
 
+line([targetSubscripts(edgeIndexList(indexBelow),1) targetSubscripts(edgeIndexList(indexAbove),1)],...
+    [targetSubscripts(edgeIndexList(indexBelow),2) targetSubscripts(edgeIndexList(indexAbove),2)],...
+    [targetSubscripts(edgeIndexList(indexBelow),3) targetSubscripts(edgeIndexList(indexAbove),3)],...
+    'color', 'm', 'linewidth', 2);
+
 %%% Get distance bar by calculating distance between pairs of points in 2D
 %%% and then comparing to geodesic, take average as scale (variance?)
-warning('Add scale bar');
 
 % for i = length(surfacePointsChoosen)+1:size(targetSubscripts,1)
 %     text(targetSubscripts(i,1), targetSubscripts(i,2), targetSubscripts(i,3), sprintf('%i', i - length(surfacePointsChoosen)));
@@ -1540,7 +1572,7 @@ sortedEdgeSubscripts(:,2) = sortedEdgeSubscripts(:,2) - min(sortedEdgeSubscripts
 
 
 
-image2Plot = zeros(xRange , yRange);
+image2Plot = zeros(xRange , yRange, 'logical');
 
 % Test which points on map are within aleurone border.
 [X, Y] = meshgrid(1:xRange, 1:yRange);
@@ -1549,13 +1581,20 @@ X = X(:); Y = Y(:);
 
 [in, on] = inpolygon(X, Y, sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2));
 
+inAleurone = in + on;
+
 for iPixel = 1:length(in)
     
-    if in(iPixel) || on(iPixel)
+    if inAleurone(iPixel)
         
         image2Plot(X(iPixel), Y(iPixel)) = 1;
     end
 end
+
+% Get index and subscripts again
+inAleurone = find(image2Plot(:));
+
+[XPointsIn, YPointsIn] = ind2sub([xRange, yRange], inAleurone);
 
 figure; imshow(image2Plot'); hold on;
 
@@ -1563,16 +1602,128 @@ plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2))
 
 plot(offSetFullSubscripts(:,1), offSetFullSubscripts(:,2), '.')
 
-% Create images using scattered interpolant
-%%% Probalby want to include exterior pixels and set to 0
+%% Calculate thickness and intesntiy image
+%figure; subplot(1,2,1); hist(thicknessByPoint,100)
+%subplot(1,2,2); hist(averageIntensityByPoint,100)
 
-% fovInterpolant = scatteredInterpolant( sphereAzs, sphereEls, inFOVLeft, 'linear','nearest');
-%     fovImageLeft = zeros(length(imAz), length(imEl));
-%     fovImageLeft(:) = round(fovInterpolant(imCoordsAz(:), imCoordsEl(:)));
+warning('check if discontinuity improved with more sampling points, could also do local smooth')
 
-%figure; hist(thicknessByPoint,100)
+valuesToUse = find(~isnan(thicknessByPoint) & thicknessByPoint >= 2);
 
-%figure; hist(averageIntensityByPoint,100)
+thicknessInterpolant = scatteredInterpolant( offSetFullSubscripts(valuesToUse,1), ...
+    offSetFullSubscripts(valuesToUse,2), thicknessByPoint(valuesToUse), 'nearest','nearest');
+
+thicknessImage = zeros(xRange , yRange);
+
+thicknessImage(inAleurone) = thicknessInterpolant(XPointsIn, YPointsIn);
+
+figure; imshow(thicknessImage'/round(max(thicknessByPoint)))
+
+
+
+intensityInterpolant = scatteredInterpolant( offSetFullSubscripts(valuesToUse,1), ...
+    offSetFullSubscripts(valuesToUse,2), averageIntensityByPoint(valuesToUse), 'nearest','nearest');
+
+intensityImage = zeros(xRange , yRange);
+
+intensityImage(inAleurone) = intensityInterpolant(XPointsIn, YPointsIn);
+
+figure; imshow(intensityImage'/round(max(averageIntensityByPoint)))
+
+%% Calculate distance error images
+% Need to distance calculate between points in 2D.
+distanceMatrix2D = zeros(nPoints, nPoints)*NaN;
+
+% Get 2D indexes of points
+pointIndex2D = sub2ind([xRange, yRange], round(offSetFullSubscripts(:,1)), ...
+    round(offSetFullSubscripts(:,2)));
+
+% Not guaranteed that borders will be inside, so need to replace with index of closest point.
+for iPoint = 1:nPoints
+    
+   if image2Plot(pointIndex2D(iPoint)) == 0 
+        
+       [~, minInd] = min( sqrt((offSetFullSubscripts(iPoint,1)-XPointsIn).^2 + ...
+           (offSetFullSubscripts(iPoint,2) - YPointsIn).^2));
+       
+       pointIndex2D(iPoint) = sub2ind([xRange, yRange], XPointsIn(minInd), YPointsIn(minInd));
+   end
+end
+
+% Get 2D distance maps.
+parpool('local', 6)
+tic
+parfor iPoint = 1:nPoints
+    dMap = bwdistgeodesic(image2Plot, pointIndex2D(iPoint), 'quasi-euclidean');
+    
+    distanceMatrix2D(iPoint, :) = dMap(pointIndex2D);
+end
+toc
+
+figure; 
+temp = abs(distanceMatrix(:) - distanceMatrix2D(:));
+subplot(2,2,1); hist(temp(~isinf(temp)),100); title('all')
+
+% Get min error, max error and difference
+
+minErrorList = zeros(nPoints,1)*NaN;
+
+meanErrorList = zeros(nPoints,1)*NaN;
+
+maxErrorList = zeros(nPoints,1)*NaN;
+
+for iPoint = 1:nPoints
+   tempError =  abs(distanceMatrix(iPoint, :) - distanceMatrix2D(iPoint, :));
+   
+   tempError(iPoint) = [];
+   
+   if sum(~isinf(tempError))
+       minErrorList(iPoint) = min(tempError(~isinf(tempError)));
+       
+       meanErrorList(iPoint) = mean(tempError(~isinf(tempError)));
+
+       maxErrorList(iPoint) = max(tempError(~isinf(tempError)));
+   end
+end
+
+subplot(2,2,3); hist(minErrorList,100); title('min')
+
+subplot(2,2,4); hist(maxErrorList,100); title('max')
+
+subplot(2,2,2); hist(meanErrorList,100); title('Mean')
+
+
+
+% Create error images for mean.
+errorInterpolant = scatteredInterpolant( offSetFullSubscripts(:,1), ...
+    offSetFullSubscripts(:,2), meanErrorList, 'nearest','nearest');
+
+errorImage = zeros(xRange , yRange);
+
+errorImage(inAleurone) = errorInterpolant(XPointsIn, YPointsIn);
+
+figure; subplot(1,3,1); imshow(errorImage'/round(max(meanErrorList))); title('mean')
+
+% Create error images for min.
+errorInterpolant = scatteredInterpolant( offSetFullSubscripts(:,1), ...
+    offSetFullSubscripts(:,2), minErrorList, 'nearest','nearest');
+
+errorImage = zeros(xRange , yRange);
+
+errorImage(inAleurone) = errorInterpolant(XPointsIn, YPointsIn);
+
+subplot(1,3,2); imshow(errorImage'/round(max(minErrorList))); title('min')
+
+% Create error images for max.
+errorInterpolant = scatteredInterpolant( offSetFullSubscripts(:,1), ...
+    offSetFullSubscripts(:,2), maxErrorList, 'nearest','nearest');
+
+errorImage = zeros(xRange , yRange);
+
+errorImage(inAleurone) = errorInterpolant(XPointsIn, YPointsIn);
+
+subplot(1,3,3); imshow(errorImage'/round(max(maxErrorList))); title('max')
+
 %% Now use point_registration and bspline_transform to shift volumes.
 %%%% May wish to draw lines in from points (based on surface normal) to get
 %%% interior manifold. These points are then just measured distance beneath
