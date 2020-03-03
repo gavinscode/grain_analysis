@@ -688,19 +688,28 @@ for iSlice = 1:maxZLength
 end
 
 % Note - this is incredibly slow!
-%%% This can be solved by doing sequentially for small sequences and then recombining.
+%%% This could be solved by doing sequentially for small sequences and then recombining.
 %%% Do say, for 1-50 and 50-100 then combine. Should test 25-75 produces same result in overlap.
 warning('Not using all points in nrbloft')
+
+% Get subset to interpolat
+toInterp = 1:10:size(xArray,2);
+
+% Add final point if not included
+if toInterp(end) ~= size(xArray,2)
+    toInterp = [toInterp size(xArray,2)];
+end
+
 tic
-curveNrb = nrbloft_nan(xArray(:,1:10:end), yArray(:,1:10:end), zArray(:,1:10:end), 2);
+curveNrb = nrbloft_nan(xArray(:, toInterp), yArray(:, toInterp), zArray(:, toInterp), 2);
 toc
 
 %% Put interpolated values into curve volume.
 %zToInterp = zBottomOfLoop-zTopOfLoop+1;
-zToInterp = max(max(zArray(:,1:10:end)))-zTopOfLoop+1;
+zToInterp = max(max(zArray(:, toInterp)))-zTopOfLoop+1;
 
 %yToInterp = max(loopSubscriptArray(:,2));
-yToInterp = max(max(yArray(:,1:10:end)));
+yToInterp = max(max(yArray(:, toInterp)));
 
 % Multiply by two for effective half step, like fast marching.
 p = nrbeval(curveNrb,{linspace(0.0,1.0,yToInterp*2) linspace(0.0,1.0,zToInterp*2)});
@@ -1083,9 +1092,13 @@ edgePointsToChoose = 1:length(aleuroneEdgeIndexList);
 
 surfacePointsToChoose = 1:length(aleuroneSurfaceIndexList);
 
+sparsePointsToChoose = 1:length(aleuroneSurfaceIndexList);
+
 edgePointsChoosen = zeros(length(aleuroneEdgeIndexList),1);
 
 surfacePointsChoosen = zeros(length(aleuroneSurfaceIndexList),1);
+
+sparsePointsChoosen = zeros(length(aleuroneSurfaceIndexList),1);
 
 % for 300, 500 gives 12 9 points 
 % for 20, 50, gives 343 1314 points 
@@ -1102,9 +1115,15 @@ surfacePointsChoosen = zeros(length(aleuroneSurfaceIndexList),1);
 
 % For test, seems good to get dense on border and moderate on surface
 
-edgeDistance = 10; 
+edgeDistance = 10; %10
 
-surfaceDistance = 20;
+surfaceDistance = 50; %50
+
+%Not, sparse distance must be less then others for code to work
+sparsePointsDistance = 3; %3
+
+%%% The finds have become very slow: may be better to do using an image based
+%%% rather than list based search.
 
 % Test edge points first. Select from top of germ (max Y)
 while ~isempty(edgePointsToChoose)
@@ -1121,11 +1140,21 @@ while ~isempty(edgePointsToChoose)
     
     edgePointsToChoose(indsToRemove) = [];
     
-    indsToRemove = find( sqrt( (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,1) - pointChoosen(1)).^2 + ...
-        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,2) - pointChoosen(2)).^2 + ...
-        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,3) - pointChoosen(3)).^2) < edgeDistance);
+    topInds = find(aleuroneSurfaceSubscriptArray(surfacePointsToChoose,3) >= pointChoosen(3) - edgeDistance);
+
+    indsToRemove = find( sqrt( (aleuroneSurfaceSubscriptArray(surfacePointsToChoose(topInds),1) - pointChoosen(1)).^2 + ...
+        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose(topInds),2) - pointChoosen(2)).^2 + ...
+        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose(topInds),3) - pointChoosen(3)).^2) < edgeDistance);
     
-    surfacePointsToChoose(indsToRemove) = [];
+    surfacePointsToChoose(topInds(indsToRemove)) = [];
+    
+    topInds = find(aleuroneSurfaceSubscriptArray(sparsePointsToChoose,3) >= pointChoosen(3) - sparsePointsDistance);
+    
+    indsToRemove = find( sqrt( (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(topInds),1) - pointChoosen(1)).^2 + ...
+        (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(topInds),2) - pointChoosen(2)).^2 + ...
+        (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(topInds),3) - pointChoosen(3)).^2) < sparsePointsDistance);
+    
+    sparsePointsToChoose(topInds(indsToRemove)) = [];
 end
 
 % Select surface points from remaining, again going down Z
@@ -1137,24 +1166,60 @@ while ~isempty(surfacePointsToChoose)
     pointChoosen = aleuroneSurfaceSubscriptArray(surfacePointsToChoose(ind),:);
     
     % Remove surface points nearby.  
-    indsToRemove = find( sqrt( (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,1) - pointChoosen(1)).^2 + ...
-        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,2) - pointChoosen(2)).^2 + ...
-        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,3) - pointChoosen(3)).^2) < surfaceDistance);
+    topInds = find(aleuroneSurfaceSubscriptArray(surfacePointsToChoose,3) >= pointChoosen(3) - surfaceDistance);
+
+    indsToRemove = find( sqrt( (aleuroneSurfaceSubscriptArray(surfacePointsToChoose(topInds),1) - pointChoosen(1)).^2 + ...
+        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose(topInds),2) - pointChoosen(2)).^2 + ...
+        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose(topInds),3) - pointChoosen(3)).^2) < surfaceDistance);
     
-    surfacePointsToChoose(indsToRemove) = [];
+    surfacePointsToChoose(topInds(indsToRemove)) = [];
+    
+    topInds = find(aleuroneSurfaceSubscriptArray(sparsePointsToChoose,3) >= pointChoosen(3) - sparsePointsDistance);
+    
+    indsToRemove = find( sqrt( (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(topInds),1) - pointChoosen(1)).^2 + ...
+        (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(topInds),2) - pointChoosen(2)).^2 + ...
+        (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(topInds),3) - pointChoosen(3)).^2) < sparsePointsDistance);
+    
+    sparsePointsToChoose(topInds(indsToRemove)) = [];
+end
+
+% Select sparse points from remaining, goind down Z
+while ~isempty(sparsePointsToChoose)
+    [~, ind] = max(aleuroneSurfaceSubscriptArray(sparsePointsToChoose,3));
+    
+    %%% Can do above as well
+    warning('Speed up selection by just testing distance of max to last point');
+    
+    sparsePointsChoosen(sparsePointsToChoose(ind)) = 1;
+    
+    pointChoosen = aleuroneSurfaceSubscriptArray(sparsePointsToChoose(ind),:);
+    
+    % Remove surface points nearby. As top inds picked first, (slight) speed up can be made by selecting them first.
+    %%% Binning points by height during search could be usefull...
+    topInds = find(aleuroneSurfaceSubscriptArray(sparsePointsToChoose,3) >= pointChoosen(3) - sparsePointsDistance);
+
+    indsToRemove = find( sqrt( (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(topInds),1) - pointChoosen(1)).^2 + ...
+        (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(topInds),2) - pointChoosen(2)).^2 + ...
+        (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(topInds),3) - pointChoosen(3)).^2) < sparsePointsDistance);
+    
+    sparsePointsToChoose(topInds(indsToRemove)) = [];
 end
 
 edgePointsChoosen = find(edgePointsChoosen); 
 
 surfacePointsChoosen = find(surfacePointsChoosen); 
 
-[length(edgePointsChoosen) length(surfacePointsChoosen)]
+sparsePointsChoosen = find(sparsePointsChoosen);
+
+[length(edgePointsChoosen) length(surfacePointsChoosen) length(sparsePointsChoosen)]
 
 tesFig = figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
 plot3(aleuroneSurfaceSubscriptArray(surfacePointsChoosen,1), aleuroneSurfaceSubscriptArray(surfacePointsChoosen,2), ...
     aleuroneSurfaceSubscriptArray(surfacePointsChoosen,3), 'go')
 plot3(aleuroneEdgeSubscriptArray(edgePointsChoosen,1), aleuroneEdgeSubscriptArray(edgePointsChoosen,2), ...
     aleuroneEdgeSubscriptArray(edgePointsChoosen,3), 'ro')
+plot3(aleuroneSurfaceSubscriptArray(sparsePointsChoosen,1), aleuroneSurfaceSubscriptArray(sparsePointsChoosen,2), ...
+    aleuroneSurfaceSubscriptArray(sparsePointsChoosen,3), 'mo')
 plot3(aleuroneSurfaceSubscriptArray(1:100:end,1), aleuroneSurfaceSubscriptArray(1:100:end,2), ...
      aleuroneSurfaceSubscriptArray(1:100:end,3), 'b.')
 %% Load grey image.
@@ -1181,22 +1246,55 @@ subscriptsToInterpolate = [aleuroneSurfaceSubscriptArray(surfacePointsChoosen,:)
 indsToInterpolate = sub2ind(volumeSize, subscriptsToInterpolate(:,1), subscriptsToInterpolate(:,2),...
     subscriptsToInterpolate(:,3));
 
+indsForSparse = sub2ind(volumeSize, aleuroneSurfaceSubscriptArray(sparsePointsChoosen,1), ...
+    aleuroneSurfaceSubscriptArray(sparsePointsChoosen,2), aleuroneSurfaceSubscriptArray(sparsePointsChoosen,3));
+
+subscriptsForSparse = aleuroneSurfaceSubscriptArray(sparsePointsChoosen,:);
+
 nPoints = length(indsToInterpolate);
 
-distanceMatrix = zeros(nPoints, nPoints)*NaN;
+nSparsePoints = length(indsForSparse);
 
-normalByPoint = zeros(nPoints, 3)*NaN; 
 
-internalIntersectByPoint = zeros(nPoints, 3)*NaN; 
+
+% Find sparse points associated with each main point, these will be referenced 
+% later for claculating normals.
+pointToSparseLinks = cell(nPoints,1);
+
+for iPoint = 1:nSparsePoints
+    
+    %Find closest main point
+    [~, closestPointIndex] = min( sqrt( (subscriptsForSparse(iPoint,1) - subscriptsToInterpolate(:,1)).^2 + ...
+        (subscriptsForSparse(iPoint,2) - subscriptsToInterpolate(:,2)).^2 + ...
+        (subscriptsForSparse(iPoint,3) - subscriptsToInterpolate(:,3)).^2) );
+    
+    temp = pointToSparseLinks{closestPointIndex};
+    
+    temp = [temp iPoint];
+    
+    pointToSparseLinks{closestPointIndex} = temp;
+end
+
+% Make distance matrix single precision to save space (particularly on sparse and combined dMap)
+distanceMatrix = zeros(nPoints, nPoints, 'single')*NaN;
+
+distanceMatrixSparse = zeros(nPoints, nSparsePoints, 'single')*NaN;
+
+whos distanceMatrixSparse
+
+
+
+normalByPoint = zeros(nPoints, 3)*NaN; normalForSparseCell = cell(nPoints, 1);  
+
+internalIntersectByPoint = zeros(nPoints, 3)*NaN; internalIntersectForSparseCell = cell(nPoints, 1);
 
 % Intenstiy and thickness may not be very useful for points on edge.
 
-thicknessByPoint = zeros(nPoints, 1)*NaN; 
+thicknessByPoint = zeros(nPoints, 1)*NaN; thicknessForSparseCell = cell(nPoints, 1); 
 
-averageIntensityByPoint = zeros(nPoints, 1)*NaN; 
+averageIntensityByPoint = zeros(nPoints, 1)*NaN; averageIntensityForSparseCell = cell(nPoints, 1);
 
-%%% Load in grey scale volume here for average calculations. 
-
+% Set up for normal calculation
 normalRadius = 100;
 
 grid3D.nx = volumeSize(1); grid3D.ny = volumeSize(2); grid3D.nz = volumeSize(3);
@@ -1209,9 +1307,9 @@ grid3D.maxBound = volumeSize';
     %%%parfor is likely to cause errors as well
 
 % Loop through geodesic distance calculations for each point then put into matrix.
-parpool('local', 4)
+%parpool('local', 4);
 
-parfor iPoint = 1:nPoints %
+for iPoint = 2130; % 1:nPoints %
 %for iPoint = %1:nPoints 
     tic
     dMap = bwdistgeodesic(aleuroneExterior, indsToInterpolate(iPoint),'quasi-euclidean');
@@ -1222,115 +1320,186 @@ parfor iPoint = 1:nPoints %
     
     distanceMatrix(iPoint, :) = dMap(indsToInterpolate);
     
-    %error('Need to test all of the following code.')
+    distanceMatrixSparse(iPoint,:) = dMap(indsForSparse);
     
     % Also calculate normal and use to get thickness.
     % Select points based on distance map to prevent picking points on both sides of crease.
     indexListInRange = find(dMap(aleuroneSurfaceIndexList) < normalRadius);
     
-    tempNormal = normaltosurface( subscriptsToInterpolate(iPoint,:), ...
-        aleuroneSurfaceSubscriptArray(indexListInRange,:), [], [], normalRadius);
+    % Make list with this location and sparse points
+    sparseLinks = pointToSparseLinks{iPoint};
     
-    gotDirection = 0;
-    scale = 1;
+    % Make temporay arrays for results.
+    tempNormalArray = zeros(length(sparseLinks),3)*NaN;
     
-    % Keeping testing normals until correct solution determined.
-    while ~gotDirection && scale < 10
+    tempInternalIntersectArray = zeros(length(sparseLinks),3)*NaN;
+    
+    tempThicknessArray = zeros(length(sparseLinks),1)*NaN;
+    
+    tempAverageIntensityArray = zeros(length(sparseLinks),1)*NaN;
+    
+    subscriptsToCalculate = [subscriptsToInterpolate(iPoint,:)' ...
+        subscriptsForSparse(sparseLinks,:)']';
+    
+    for jSubscript = 1:size(subscriptsToCalculate,1)
+        currentSubscript = subscriptsToCalculate(jSubscript,:);
         
-        coordsForward = round(subscriptsToInterpolate(iPoint,:) + tempNormal*scale);
-        coordsBack = round(subscriptsToInterpolate(iPoint,:) - tempNormal*scale);  
-    
-        % Test normal points into aleurone, or otherwise they go into volume
-        if grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) == ALEURONE_INDEX && ...
-                grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) ~= ALEURONE_INDEX
-            % Should be ok.
-            gotDirection = 1;
-        elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) ~= ALEURONE_INDEX && ...
-                grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) == ALEURONE_INDEX
-            % Flip normal direction
-            tempNormal = -tempNormal;
-            gotDirection = 1;
-        elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) > 0 && ...
-                grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) == 0
-            % Should be ok.
-            gotDirection = 1;
-        elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) == 0 && ...
-                grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) > 0
-            % Flip normal direction
-            tempNormal = -tempNormal;
-            gotDirection = 1;
-        end
+        %%% Could use iPoint as reference for sparse points
         
-        scale = scale + 1;
-    end
-    
-    % Just continue if direction found.
-    if gotDirection
-    
-        normalByPoint(iPoint,:) = tempNormal;
+        tempNormal = normaltosurface(currentSubscript , ...
+            aleuroneSurfaceSubscriptArray(indexListInRange,:), [], [], normalRadius);
 
-        % Plot for testing - note line points out while normal actually points in.
-        if testPlotNormals
-            figure(tesFig)
-            if iPoint < surfacePointsChoosen
-                lineColor = 'g';
-            else
-                lineColor = 'r';
+        gotDirection = 0;
+        scale = 1;
+
+        % Keeping testing normals until correct solution determined.
+        while ~gotDirection && scale < 10
+
+            coordsForward = round(currentSubscript + tempNormal*scale);
+            coordsBack = round(currentSubscript - tempNormal*scale);  
+
+            % Test normal points into aleurone, or otherwise they go into volume
+            if grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) == ALEURONE_INDEX && ...
+                    grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) ~= ALEURONE_INDEX
+                % Should be ok.
+                gotDirection = 1;
+            elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) ~= ALEURONE_INDEX && ...
+                    grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) == ALEURONE_INDEX
+                % Flip normal direction
+                tempNormal = -tempNormal;
+                gotDirection = 1;
+            elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) > 0 && ...
+                    grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) == 0
+                % Should be ok.
+                gotDirection = 1;
+            elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) == 0 && ...
+                    grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) > 0
+                % Flip normal direction
+                tempNormal = -tempNormal;
+                gotDirection = 1;
             end
-            line([0 -tempNormal(1)*100]+subscriptsToInterpolate(iPoint,1),...
-                [0 -tempNormal(2)*100]+subscriptsToInterpolate(iPoint,2), ...
-                [0 -tempNormal(3)*100]+subscriptsToInterpolate(iPoint,3), 'color', lineColor)
+
+            scale = scale + 1;
         end
-        
-        %Draw line in voxel space.
-        [tempX, tempY, tempZ] = amanatideswooalgorithm_efficient(subscriptsToInterpolate(iPoint,:), normalByPoint(iPoint,:), grid3D, 0);
 
-        indexList = sub2ind(volumeSize, tempX, tempY, tempZ);
+        % Just continue if direction found.
+        if gotDirection
 
-        % Find intersects
-        interiorIntersects = find(aleuroneInterior(indexList));
-
-        interiorIntersects(interiorIntersects > 20) = [];
-
-        % Test intersects are present/in correct  order.
-        if ~isempty(interiorIntersects)
-            % Check all points before are aleurone
-            if all( grainVolumeAligned( indexList(1:(interiorIntersects(1)-1))) == ALEURONE_INDEX) & ...
-                    ~any( grainVolumeAligned(indexList(1:(interiorIntersects(1)-1))) ~= ALEURONE_INDEX)
-
-                    % Points is ok, record and thickness + intensity.
-                    tempIntersect = [tempX(interiorIntersects(1)), ...
-                        tempY(interiorIntersects(1)), tempZ(interiorIntersects(1))]; 
-
-                    internalIntersectByPoint(iPoint,:) = tempIntersect;
-
-                    thicknessByPoint(iPoint,:) = sqrt((subscriptsToInterpolate(iPoint,1) - tempX(interiorIntersects(1)))^2 + ...
-                        (subscriptsToInterpolate(iPoint,2) - tempY(interiorIntersects(1)))^2 + ...
-                        (subscriptsToInterpolate(iPoint,3) - tempZ(interiorIntersects(1)))^2); 
-
-                    averageIntensityByPoint(iPoint) = mean( greyVolumeAligned( indexList(1:interiorIntersects(1))));
-
-                    if testPlotNormals
-                        plot3(tempIntersect(1), tempIntersect(2), ...
-                            tempIntersect(3),'mo');
-                    end
+            if jSubscript == 1
+                normalByPoint(iPoint,:) = tempNormal;
             else
-                iPoint
-                warning('Not all aleurone before interior intersect');
+                tempNormalArray(jSubscript-1,:) = tempNormal;
             end
+            
+            % Plot for testing - note line points out while normal actually points in.
+            if testPlotNormals & jSubscript == 1
+                figure(tesFig)
+                if iPoint < surfacePointsChoosen
+                    lineColor = 'g';
+                else
+                    lineColor = 'r';
+                end
+                line([0 -tempNormal(1)*100]+currentSubscript(1),...
+                    [0 -tempNormal(2)*100]+currentSubscript(2), ...
+                    [0 -tempNormal(3)*100]+currentSubscript(3), 'color', lineColor)
+            end
+
+            %Draw line in voxel space.
+            [tempX, tempY, tempZ] = amanatideswooalgorithm_efficient(currentSubscript, tempNormal, grid3D, 0);
+
+            indexList = sub2ind(volumeSize, tempX, tempY, tempZ);
+
+            % Find intersects
+            interiorIntersects = find(aleuroneInterior(indexList));
+
+            interiorIntersects(interiorIntersects > 20) = [];
+
+            % Test intersects are present/in correct  order.
+            if ~isempty(interiorIntersects)
+                % Check all points before are aleurone
+                if all( grainVolumeAligned( indexList(1:(interiorIntersects(1)-1))) == ALEURONE_INDEX) & ...
+                        ~any( grainVolumeAligned(indexList(1:(interiorIntersects(1)-1))) ~= ALEURONE_INDEX)
+
+                        % Points is ok, record and thickness + intensity.
+                        tempIntersect = [tempX(interiorIntersects(1)), ...
+                            tempY(interiorIntersects(1)), tempZ(interiorIntersects(1))]; 
+
+                        if jSubscript == 1            
+                            internalIntersectByPoint(iPoint,:) = tempIntersect;
+
+                            thicknessByPoint(iPoint) = sqrt((currentSubscript(1) - tempIntersect(1))^2 + ...
+                                (currentSubscript(2) - tempIntersect(2))^2 + ...
+                                (currentSubscript(3) - tempIntersect(3))^2); 
+
+                            averageIntensityByPoint(iPoint) = mean( greyVolumeAligned( indexList(1:interiorIntersects(1))));
+
+                        else
+                            tempInternalIntersectArray(jSubscript-1,:) = tempIntersect;
+
+                            tempThicknessArray(jSubscript-1) = sqrt((currentSubscript(1) - tempIntersect(1))^2 + ...
+                                (currentSubscript(2) - tempIntersect(2))^2 + ...
+                                (currentSubscript(3) - tempIntersect(3))^2); 
+
+                            tempAverageIntensityArray(jSubscript-1) = mean( greyVolumeAligned( indexList(1:interiorIntersects(1))));
+                            
+                        end
+                        
+                        if testPlotNormals
+                            plot3(tempIntersect(1), tempIntersect(2), ...
+                                tempIntersect(3),'mo');
+                        end
+                else
+                    [iPoint jSubscript]
+                    warning('Not all aleurone before interior intersect');
+                end
+            else
+               [iPoint jSubscript]
+               warning('No interior intersect');
+            end 
         else
-           iPoint
-           warning('No interior intersect');
-        end 
-    else
-       iPoint
-       warning('Direction could not be determined');
+           [iPoint jSubscript]
+           warning('Direction could not be determined');
+        end
     end
+    
+    % Store sparse point info into cell
+    normalForSparseCell{iPoint} = tempNormalArray;
+    
+    internalIntersectForSparseCell{iPoint} = tempInternalIntersectArray;
+    
+    thicknessForSparseCell{iPoint} = tempThicknessArray;
+    
+    averageIntensityForSparseCell{iPoint} = tempAverageIntensityArray;
 end
 
-save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i', 'distanceMatrix', edgeDistance, surfaceDistance), ...
-    'distanceMatrix', 'subscriptsToInterpolate', 'normalByPoint', 'internalIntersectByPoint', ...
-    'thicknessByPoint', 'averageIntensityByPoint');
+% Unload data from cells into arrays
+normalForSparse = zeros(nSparsePoints, 1);  
+
+internalIntersectForSparse = zeros(nSparsePoints, 1);
+
+thicknessForSparse = zeros(nSparsePoints, 1); 
+
+averageIntensityForSparse = zeros(nSparsePoints, 1);
+
+for iPoint = 1:nPoints
+    sparseLinks = pointToSparseLinks{iPoint};
+    
+    normalForSparse(sparseLinks) = normalForSparseCell{iPoint};
+    
+    internalIntersectForSparse(sparseLinks) = internalIntersectForSparseCell{iPoint};
+    
+    thicknessForSparse(sparseLinks) = thicknessByForSparseCell{iPoint};
+    
+    averageIntensityForSparse(sparseLinks) = averageIntensityForSparseCell{iPoint};
+end
+
+save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i', 'distanceMatrix', ...
+        edgeDistance, surfaceDistance, sparsePointsDistance, normalRadius), ...
+    'edgeDistance', 'surfaceDistance', 'sparsePointsDistance', 'normalRadius',...    
+    'distanceMatrix', 'subscriptsToInterpolate', ... 
+    'distanceMatrixSparse', 'subscriptsForSparse',...
+    'normalByPoint', 'internalIntersectByPoint', 'thicknessByPoint', 'averageIntensityByPoint',...
+    'normalForSparse', 'internalIntersectForSparse', 'thicknessForSparse', 'averageIntensityForSparse');
 
 %load('/Users/gavintaylor/Documents/Matlab/Temp_data/distanceMatrix_50_75.mat')
 
@@ -1405,6 +1574,8 @@ save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i', 'distan
 %% Calculate unwrapping - based on tutorial on Numerical tours
 % https://nbviewer.jupyter.org/github/gpeyre/numerical-tours/blob/master/matlab/meshdeform_3_flattening.ipynb
 
+% Could also try using mdscale or cdscale functions
+
 % Check for points with inf distance.
 if any(isinf(distanceMatrix(:))) || any(isnan(distanceMatrix(:)))
    error('Can not have NaN or Inf in distance matrix')
@@ -1413,23 +1584,57 @@ end
 % Enforce symmetry (should be ok...)
 distanceMatrixTemp = (distanceMatrix + distanceMatrix')/2;
 
+
+
 % Compute centered matrix.
-J = eye(nPoints) - ones(nPoints)/nPoints;
+nToUse = size(distanceMatrixTemp,1); 
+J = eye(nToUse) - ones(nToUse)/nToUse;
 W = -J*(distanceMatrixTemp.^2)*J;
 
 % Diagonalize centred matrix.
-[U,S] = eig(W);
-S = diag(S);
-[S,I] = sort(S,'descend'); 
-U = U(:,I);
+[Uo,So] = eig(W);
+S2 = diag(So);
+[S2,I] = sort(S2, 'descend'); 
+U2 = Uo(:,I);
 
-figure; plot(S,'x-')
+%figure; plot(S,'x-')
 
 % Map is determined by two largest values
-%%% Take three largest if considering manifold
-pointsUnwrapped = (U(:,1:2)' .* repmat(sqrt(S(1:2)), [1 nPoints]))';
+pointsUnwrapped = (U2(:,1:2)' .* repmat(sqrt(S2(1:2)), [1 nToUse]))'; 
 
-pointsUnwrapped = pointsUnwrapped/2;
+% Test maths
+temp = Uo*So - W*Uo;
+temp = So - inv(Uo)*(W*Uo);
+temp = diag(So) - diag(inv(Uo)*(W*Uo));
+sum(abs(temp(:)))
+
+% Test demo of transform
+test = inv(Uo)*(W*Uo);
+test = diag(test);
+test = test(I);
+test = (U2(:,1:2)' .* repmat(sqrt(test(1:2)), [1 nToUse]))'; 
+sum(abs(pointsUnwrapped(:)-test(:)))
+
+% Nonclasic scaling still produces similar results with points missing
+%%% Will need to sequentially add in blocks of missing values and get their transforms
+% Test with points missing
+% removeFew = 1:10:nPoints;
+% 
+% removeMany = 1:nPoints;
+% 
+% removeMany(removeFew) = [];
+% 
+% toRemove = removeFew; %removeFew
+
+% for iPoint = toRemove
+%     distanceMatrixTemp(iPoint, toRemove) = NaN;
+%     
+%     distanceMatrixTemp(toRemove, iPoint) = NaN;
+%     
+%     distanceMatrixTemp(iPoint, iPoint) = 0;
+% end
+
+%pointsUnwrapped = mdscale(distanceMatrixTemp, 2, 'criterion', 'metricstress', 'start', 'random');
 
 %%% Should check how well diemsions are preserved during unwrapping.
 % D2 will go to Z, D1 will go to X, Y is set in middle
@@ -1505,6 +1710,9 @@ plot3(targetSubscripts(surfaceIndexList,1), targetSubscripts(surfaceIndexList,2)
 
 plot3(targetSubscripts(edgeIndexList,1), targetSubscripts(edgeIndexList,2), ...
     targetSubscripts(edgeIndexList,3), 'r.')
+
+plot3(targetSubscripts(toRemove,1), targetSubscripts(toRemove,2), ...
+    targetSubscripts(toRemove,3), 'gx')
 
 line([targetSubscripts(edgeIndexList(indexBelow),1) targetSubscripts(edgeIndexList(indexAbove),1)],...
     [targetSubscripts(edgeIndexList(indexBelow),2) targetSubscripts(edgeIndexList(indexAbove),2)],...
@@ -1724,6 +1932,9 @@ errorImage(inAleurone) = errorInterpolant(XPointsIn, YPointsIn);
 
 subplot(1,3,3); imshow(errorImage'/round(max(maxErrorList))); title('max')
 
+%%% Could also plot where maximum location of error goes to, if far away
+%%% it's probably not important.
+
 %% Now use point_registration and bspline_transform to shift volumes.
 %%%% May wish to draw lines in from points (based on surface normal) to get
 %%% interior manifold. These points are then just measured distance beneath
@@ -1740,7 +1951,7 @@ options.Verbose=true;
 
 % Simply scaling down points and volume size speeds regularization up a lot...
 %%% Creates same results on reduced size image. May be better way to scale up?
-sF = 4;
+sF = 1; %4;
 [O_trans, Spacing] = point_registration(round(volumeSize([1 2 3])/sF), subscriptsToInterpolate(:, [1 2 3])/sF, ...
     targetSubscripts(:, [1 2 3])/sF, options);
 
