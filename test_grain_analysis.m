@@ -1094,11 +1094,11 @@ surfacePointsToChoose = 1:length(aleuroneSurfaceIndexList);
 
 sparsePointsToChoose = 1:length(aleuroneSurfaceIndexList);
 
-edgePointsChoosen = zeros(length(aleuroneEdgeIndexList),1);
+edgePointsChoosen = zeros(length(aleuroneEdgeIndexList), 1, 'logical');
 
-surfacePointsChoosen = zeros(length(aleuroneSurfaceIndexList),1);
+surfacePointsChoosen = zeros(length(aleuroneSurfaceIndexList), 1, 'logical');
 
-sparsePointsChoosen = zeros(length(aleuroneSurfaceIndexList),1);
+sparsePointsChoosen = zeros(length(aleuroneSurfaceIndexList), 1, 'logical');
 
 % for 300, 500 gives 12 9 points 
 % for 20, 50, gives 343 1314 points 
@@ -1122,92 +1122,105 @@ surfaceDistance = 50; %50
 %Not, sparse distance must be less then others for code to work
 sparsePointsDistance = 3; %3
 
-%%% The finds have become very slow: may be better to do using an image based
-%%% rather than list based search.
-
 % Test edge points first. Select from top of germ (max Y)
+tic
 while ~isempty(edgePointsToChoose)
-    [~, ind] = max(aleuroneEdgeSubscriptArray(edgePointsToChoose,3));
-    
-    edgePointsChoosen(edgePointsToChoose(ind)) = 1;
+    [~, ind] = max( aleuroneEdgeSubscriptArray(edgePointsToChoose,3));
     
     pointChoosen = aleuroneEdgeSubscriptArray(edgePointsToChoose(ind),:);
     
-    % Remove edge and surface points nearby.
-    indsToRemove = find( sqrt( (aleuroneEdgeSubscriptArray(edgePointsToChoose,1) - pointChoosen(1)).^2 + ...
+    edgePointsChoosen(edgePointsToChoose(ind)) = 1;
+    
+    % Remove other edge points within edge distance
+    distances = sqrt( (aleuroneEdgeSubscriptArray(edgePointsToChoose,1) - pointChoosen(1)).^2 + ...
         (aleuroneEdgeSubscriptArray(edgePointsToChoose,2) - pointChoosen(2)).^2 + ...
-        (aleuroneEdgeSubscriptArray(edgePointsToChoose,3) - pointChoosen(3)).^2) < edgeDistance);
+        (aleuroneEdgeSubscriptArray(edgePointsToChoose,3) - pointChoosen(3)).^2);
     
-    edgePointsToChoose(indsToRemove) = [];
+    edgePointsToChoose(distances < edgeDistance) = [];
     
-    topInds = find(aleuroneSurfaceSubscriptArray(surfacePointsToChoose,3) >= pointChoosen(3) - edgeDistance);
-
-    indsToRemove = find( sqrt( (aleuroneSurfaceSubscriptArray(surfacePointsToChoose(topInds),1) - pointChoosen(1)).^2 + ...
-        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose(topInds),2) - pointChoosen(2)).^2 + ...
-        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose(topInds),3) - pointChoosen(3)).^2) < edgeDistance);
+    % Remove surface points within edge distance
+    distances = sqrt( (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,1) - pointChoosen(1)).^2 + ...
+        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,2) - pointChoosen(2)).^2 + ...
+        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,3) - pointChoosen(3)).^2);
     
-    surfacePointsToChoose(topInds(indsToRemove)) = [];
-    
-    topInds = find(aleuroneSurfaceSubscriptArray(sparsePointsToChoose,3) >= pointChoosen(3) - sparsePointsDistance);
-    
-    indsToRemove = find( sqrt( (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(topInds),1) - pointChoosen(1)).^2 + ...
-        (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(topInds),2) - pointChoosen(2)).^2 + ...
-        (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(topInds),3) - pointChoosen(3)).^2) < sparsePointsDistance);
-    
-    sparsePointsToChoose(topInds(indsToRemove)) = [];
+    surfacePointsToChoose(distances < edgeDistance) = [];
 end
-
-% Select surface points from remaining, again going down Z
-while ~isempty(surfacePointsToChoose)
-    [~, ind] = max(aleuroneSurfaceSubscriptArray(surfacePointsToChoose,3));
-    
-    surfacePointsChoosen(surfacePointsToChoose(ind)) = 1;
-    
-    pointChoosen = aleuroneSurfaceSubscriptArray(surfacePointsToChoose(ind),:);
-    
-    % Remove surface points nearby.  
-    topInds = find(aleuroneSurfaceSubscriptArray(surfacePointsToChoose,3) >= pointChoosen(3) - surfaceDistance);
-
-    indsToRemove = find( sqrt( (aleuroneSurfaceSubscriptArray(surfacePointsToChoose(topInds),1) - pointChoosen(1)).^2 + ...
-        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose(topInds),2) - pointChoosen(2)).^2 + ...
-        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose(topInds),3) - pointChoosen(3)).^2) < surfaceDistance);
-    
-    surfacePointsToChoose(topInds(indsToRemove)) = [];
-    
-    topInds = find(aleuroneSurfaceSubscriptArray(sparsePointsToChoose,3) >= pointChoosen(3) - sparsePointsDistance);
-    
-    indsToRemove = find( sqrt( (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(topInds),1) - pointChoosen(1)).^2 + ...
-        (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(topInds),2) - pointChoosen(2)).^2 + ...
-        (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(topInds),3) - pointChoosen(3)).^2) < sparsePointsDistance);
-    
-    sparsePointsToChoose(topInds(indsToRemove)) = [];
-end
-
-% Select sparse points from remaining, goind down Z
-while ~isempty(sparsePointsToChoose)
-    [~, ind] = max(aleuroneSurfaceSubscriptArray(sparsePointsToChoose,3));
-    
-    %%% Can do above as well
-    warning('Speed up selection by just testing distance of max to last point');
-    
-    sparsePointsChoosen(sparsePointsToChoose(ind)) = 1;
-    
-    pointChoosen = aleuroneSurfaceSubscriptArray(sparsePointsToChoose(ind),:);
-    
-    % Remove surface points nearby. As top inds picked first, (slight) speed up can be made by selecting them first.
-    %%% Binning points by height during search could be usefull...
-    topInds = find(aleuroneSurfaceSubscriptArray(sparsePointsToChoose,3) >= pointChoosen(3) - sparsePointsDistance);
-
-    indsToRemove = find( sqrt( (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(topInds),1) - pointChoosen(1)).^2 + ...
-        (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(topInds),2) - pointChoosen(2)).^2 + ...
-        (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(topInds),3) - pointChoosen(3)).^2) < sparsePointsDistance);
-    
-    sparsePointsToChoose(topInds(indsToRemove)) = [];
-end
+toc
 
 edgePointsChoosen = find(edgePointsChoosen); 
 
+% Select surface points from remaining, again going down Z
+tic
+while ~isempty(surfacePointsToChoose)
+    [~, ind] = max(aleuroneSurfaceSubscriptArray(surfacePointsToChoose,3));
+    
+    pointChoosen = aleuroneSurfaceSubscriptArray(surfacePointsToChoose(ind),:);
+    
+    surfacePointsChoosen(surfacePointsToChoose(ind)) = 1;
+    
+    % Remove other surface points within surface distance
+    distances = sqrt( (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,1) - pointChoosen(1)).^2 + ...
+        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,2) - pointChoosen(2)).^2 + ...
+        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,3) - pointChoosen(3)).^2);
+    
+    surfacePointsToChoose(distances < surfaceDistance) = [];
+end
+toc
+
 surfacePointsChoosen = find(surfacePointsChoosen); 
+
+% Select sparse points by z layer for speed
+
+sparseLayers = min(aleuroneSurfaceSubscriptArray(:,3)):sparsePointsDistance: ...
+    max(aleuroneSurfaceSubscriptArray(:,3));
+tic
+for iLayer = sparseLayers
+    
+    pointsOnLayer = find(aleuroneSurfaceSubscriptArray(sparsePointsToChoose,3) == iLayer);
+    
+    %Search from top of crease down in Y
+    while ~isempty(pointsOnLayer)
+        [~, ind] = max(aleuroneSurfaceSubscriptArray(sparsePointsToChoose(pointsOnLayer),2));
+
+        pointChoosen = aleuroneSurfaceSubscriptArray(sparsePointsToChoose(pointsOnLayer(ind)),:);
+
+       % Use different test scheme for sparse points to try and improve speed.
+       % Check if point less than sparse distance to any previously choosen edge or surface points.
+       % Note, moved to 2D.
+        testEdge = sum( sqrt( (aleuroneEdgeSubscriptArray(edgePointsChoosen,1) - pointChoosen(1)).^2 + ...
+            (aleuroneEdgeSubscriptArray(edgePointsChoosen,2) - pointChoosen(2)).^2) < sparsePointsDistance) == 0;
+
+        testSurface = sum( sqrt( (aleuroneSurfaceSubscriptArray(surfacePointsChoosen,1) - pointChoosen(1)).^2 + ...
+            (aleuroneSurfaceSubscriptArray(surfacePointsChoosen,2) - pointChoosen(2)).^2) < sparsePointsDistance) == 0;
+
+        if testEdge && testSurface
+            % If not, test distance to exisiting sparse points - seems inefficient
+
+%             testSparse = sum( sqrt( (aleuroneSurfaceSubscriptArray(sparsePointsChoosen,1) - pointChoosen(1)).^2 + ...
+%                 (aleuroneSurfaceSubscriptArray(sparsePointsChoosen,2) - pointChoosen(2)).^2 + ...
+%                 (aleuroneSurfaceSubscriptArray(sparsePointsChoosen,3) - pointChoosen(3)).^2) < sparsePointsDistance) == 0;
+%             if testSparse
+                 sparsePointsChoosen(sparsePointsToChoose(pointsOnLayer(ind))) = 1;
+%             end
+
+            % Remove other surface points within surface distance from both lists
+            % Note: now done in 2D
+            indsOut = find(sqrt( (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(pointsOnLayer),1) - pointChoosen(1)).^2 + ...
+                (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(pointsOnLayer),2) - pointChoosen(2)).^2) < sparsePointsDistance);
+            
+            pointsOnLayer(indsOut) = [];
+
+        else
+            %Remove point from both lists
+            pointsOnLayer(ind) = [];
+        end
+
+        %Remove point
+        %sparsePointsToChoose(ind) = [];
+
+    end
+end
+toc
 
 sparsePointsChoosen = find(sparsePointsChoosen);
 
@@ -1309,8 +1322,8 @@ grid3D.maxBound = volumeSize';
 % Loop through geodesic distance calculations for each point then put into matrix.
 %parpool('local', 4);
 
-for iPoint = 2130; % 1:nPoints %
-%for iPoint = %1:nPoints 
+parfor iPoint = 1:nPoints %
+%for iPoint = 2273 %1:nPoints 
     tic
     dMap = bwdistgeodesic(aleuroneExterior, indsToInterpolate(iPoint),'quasi-euclidean');
     toc
@@ -1473,9 +1486,9 @@ for iPoint = 2130; % 1:nPoints %
 end
 
 % Unload data from cells into arrays
-normalForSparse = zeros(nSparsePoints, 1);  
+normalForSparse = zeros(nSparsePoints, 3);  
 
-internalIntersectForSparse = zeros(nSparsePoints, 1);
+internalIntersectForSparse = zeros(nSparsePoints, 3);
 
 thicknessForSparse = zeros(nSparsePoints, 1); 
 
@@ -1484,24 +1497,27 @@ averageIntensityForSparse = zeros(nSparsePoints, 1);
 for iPoint = 1:nPoints
     sparseLinks = pointToSparseLinks{iPoint};
     
-    normalForSparse(sparseLinks) = normalForSparseCell{iPoint};
-    
-    internalIntersectForSparse(sparseLinks) = internalIntersectForSparseCell{iPoint};
-    
-    thicknessForSparse(sparseLinks) = thicknessByForSparseCell{iPoint};
-    
-    averageIntensityForSparse(sparseLinks) = averageIntensityForSparseCell{iPoint};
+    if ~isempty(sparseLinks)
+        normalForSparse(sparseLinks,:) = normalForSparseCell{iPoint};
+
+        internalIntersectForSparse(sparseLinks,:) = internalIntersectForSparseCell{iPoint};
+
+        thicknessForSparse(sparseLinks) = thicknessForSparseCell{iPoint};
+
+        averageIntensityForSparse(sparseLinks) = averageIntensityForSparseCell{iPoint};
+    end
 end
 
-save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i', 'distanceMatrix', ...
-        edgeDistance, surfaceDistance, sparsePointsDistance, normalRadius), ...
-    'edgeDistance', 'surfaceDistance', 'sparsePointsDistance', 'normalRadius',...    
-    'distanceMatrix', 'subscriptsToInterpolate', ... 
-    'distanceMatrixSparse', 'subscriptsForSparse',...
-    'normalByPoint', 'internalIntersectByPoint', 'thicknessByPoint', 'averageIntensityByPoint',...
-    'normalForSparse', 'internalIntersectForSparse', 'thicknessForSparse', 'averageIntensityForSparse');
+% save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i', 'distanceMatrix', ...
+%         edgeDistance, surfaceDistance, sparsePointsDistance, normalRadius), ...
+%     'edgeDistance', 'surfaceDistance', 'sparsePointsDistance', 'normalRadius',...    
+%     'distanceMatrix', 'subscriptsToInterpolate', ... 
+%     'distanceMatrixSparse', 'subscriptsForSparse',...
+%     'normalByPoint', 'internalIntersectByPoint', 'thicknessByPoint', 'averageIntensityByPoint',...
+%     'normalForSparse', 'internalIntersectForSparse', 'thicknessForSparse', 'averageIntensityForSparse',...
+%     '-v7.3');
 
-%load('/Users/gavintaylor/Documents/Matlab/Temp_data/distanceMatrix_50_75.mat')
+%load('/Users/gavintaylor/Documents/Matlab/Temp_data/distanceMatrix_10_50_3_100.mat')
 
 % Save to prevent overwrite.
 % distanceMatrixSaver = distanceMatrix;
@@ -1581,42 +1597,39 @@ if any(isinf(distanceMatrix(:))) || any(isnan(distanceMatrix(:)))
    error('Can not have NaN or Inf in distance matrix')
 end
 
-% Enforce symmetry (should be ok...)
-distanceMatrixTemp = (distanceMatrix + distanceMatrix')/2;
-
-
+% Enforce symmetry (should be ok...). Should also be squared
+distanceMatrixTemp = ((distanceMatrix.^1 + (distanceMatrix.^1)')/2);
 
 % Compute centered matrix.
-nToUse = size(distanceMatrixTemp,1); 
-J = eye(nToUse) - ones(nToUse)/nToUse;
-W = -J*(distanceMatrixTemp.^2)*J;
-
-% Diagonalize centred matrix.
-[Uo,So] = eig(W);
-S2 = diag(So);
-[S2,I] = sort(S2, 'descend'); 
-U2 = Uo(:,I);
-
-%figure; plot(S,'x-')
-
-% Map is determined by two largest values
-pointsUnwrapped = (U2(:,1:2)' .* repmat(sqrt(S2(1:2)), [1 nToUse]))'; 
-
-% Test maths
-temp = Uo*So - W*Uo;
-temp = So - inv(Uo)*(W*Uo);
-temp = diag(So) - diag(inv(Uo)*(W*Uo));
-sum(abs(temp(:)))
-
-% Test demo of transform
-test = inv(Uo)*(W*Uo);
-test = diag(test);
-test = test(I);
-test = (U2(:,1:2)' .* repmat(sqrt(test(1:2)), [1 nToUse]))'; 
-sum(abs(pointsUnwrapped(:)-test(:)))
+% nToUse = size(distanceMatrixTemp,1); 
+% J = eye(nToUse) - ones(nToUse)/nToUse;
+% W = -J*(distanceMatrixTemp.^2)*J;
+% 
+% % Diagonalize centred matrix.
+% [Uo,So] = eig(W);
+% S2 = diag(So);
+% [S2,I] = sort(S2, 'descend'); 
+% U2 = Uo(:,I);
+% 
+% %figure; plot(So,'x-')
+% 
+% % Map is determined by two largest values
+% pointsUnwrapped = (U2(:,1:2)' .* repmat(sqrt(S2(1:2)), [1 nToUse]))'; 
+% 
+% % Test maths
+% temp = Uo*So - W*Uo;
+% temp = So - inv(Uo)*(W*Uo);
+% temp = diag(So) - diag(inv(Uo)*(W*Uo));
+% sum(abs(temp(:)))
+% 
+% % Test demo of transform
+% test = inv(Uo)*(W*Uo);
+% test = diag(test);
+% test = test(I);
+% test = (U2(:,1:2)' .* repmat(sqrt(test(1:2)), [1 nToUse]))'; 
+% sum(abs(pointsUnwrapped(:)-test(:)))
 
 % Nonclasic scaling still produces similar results with points missing
-%%% Will need to sequentially add in blocks of missing values and get their transforms
 % Test with points missing
 % removeFew = 1:10:nPoints;
 % 
@@ -1634,44 +1647,214 @@ sum(abs(pointsUnwrapped(:)-test(:)))
 %     distanceMatrixTemp(iPoint, iPoint) = 0;
 % end
 
+% Unwrapping on original points
+tic
 %pointsUnwrapped = mdscale(distanceMatrixTemp, 2, 'criterion', 'metricstress', 'start', 'random');
 
-%%% Should check how well diemsions are preserved during unwrapping.
-% D2 will go to Z, D1 will go to X, Y is set in middle
+% Use CMD scale for best case of placing points in embedding.
+%pointsUnwrapped = cmdscale(double(distanceMatrixTemp), 2);
 
-%%% Need to majorly reshape new points to preserve dimensions. Done manually for now
-% Flip Y and add minimum
-pointsUnwrapped(:,2) = -pointsUnwrapped(:,2); 
-pointsUnwrapped(:,2) = pointsUnwrapped(:,2) - mean(pointsUnwrapped(:,2));
+% Apparently CMD is equivlenet to PCA; but seems to give different results
+[coeff, pointsUnwrapped] = pca(distanceMatrixTemp, 'Algorithm','eig',...
+    'Centered','on','NumComponents',2);
+toc
 
-%Flip X, center
-pointsUnwrapped(:,1) = -pointsUnwrapped(:,1);
-pointsUnwrapped(:,1) = pointsUnwrapped(:,1)-mean(pointsUnwrapped(:,1));
+surfaceIndexList = 1:length(surfacePointsChoosen);
+edgeIndexList = (length(surfacePointsChoosen)+1):(length(surfacePointsChoosen)+size(edgePointsChoosen,1));
 
-% Apply scalling, get points closest to zero X above and below Z zero.
-indexListAbove = find( pointsUnwrapped(edgeIndexList, 2) > 0);
+% Center
+% pointsUnwrapped(:,2) = pointsUnwrapped(:,2) - mean(pointsUnwrapped(:,2));
+% 
+% pointsUnwrapped(:,1) = pointsUnwrapped(:,1)-mean(pointsUnwrapped(:,1));
+% 
+% % Apply scalling, get points closest to zero X above and below Z zero.
+% indexListAbove = find( pointsUnwrapped(edgeIndexList, 2) > 0);
+% 
+% [~, closestAbove] = min( abs( pointsUnwrapped(edgeIndexList(indexListAbove), 1)));
+% 
+% indexAbove = (indexListAbove(closestAbove));
+% 
+% indexListBelow = find( pointsUnwrapped(edgeIndexList, 2) < 0);
+% 
+% [~, closestBelow] = min( abs( pointsUnwrapped(edgeIndexList(indexListBelow), 1)));
+% 
+% indexBelow = (indexListBelow(closestBelow));
+% 
+% % Scale based on relative distances.
+% unwrappedDistance = sqrt((pointsUnwrapped(edgeIndexList(indexAbove),1) - pointsUnwrapped(edgeIndexList(indexBelow),1)).^2 +...
+%     (pointsUnwrapped(edgeIndexList(indexAbove),2) - pointsUnwrapped(edgeIndexList(indexBelow),2)).^2);
+% 
+% distanceOnSurf = distanceMatrix(edgeIndexList(indexAbove), edgeIndexList(indexBelow));
+% 
+% pointsUnwrapped = pointsUnwrapped/unwrappedDistance*distanceOnSurf;
+% 
+% % Match angle
+% unwrappedAngle = atan2(pointsUnwrapped(edgeIndexList(indexAbove),2) - pointsUnwrapped(edgeIndexList(indexBelow),2), ...
+%     pointsUnwrapped(edgeIndexList(indexAbove),1) - pointsUnwrapped(edgeIndexList(indexBelow),1));
+% 
+% warning('May need to check flipping or rotation')
 
-[~, closestAbove] = min( abs( pointsUnwrapped(edgeIndexList(indexListAbove), 1)));
+%%% Which one is below zero may depend on embedding...
+% pointsUnwrapped = [pointsUnwrapped ones(size(pointsUnwrapped,1),1) ] * ...
+%     make_transformation_matrix([0 0], -unwrappedAngle-pi/2+pi);
 
-indexAbove = (indexListAbove(closestAbove));
+error('Move scaling to non-squared PCA code, seems nicer. Then test')
 
-indexListBelow = find( pointsUnwrapped(edgeIndexList, 2) < 0);
+figure; hold on; axis equal
 
-[~, closestBelow] = min( abs( pointsUnwrapped(edgeIndexList(indexListBelow), 1)));
+plot(pointsUnwrapped(:,1), pointsUnwrapped(:,2), 'kx');
 
-indexBelow = (indexListBelow(closestBelow));
+plot(pointsUnwrapped(edgeIndexList(indexAbove),1), pointsUnwrapped(edgeIndexList(indexAbove),2), 'gd');
 
-%scale based on relative distances
-unwrappedDistance = sqrt((pointsUnwrapped(edgeIndexList(indexAbove),1) - pointsUnwrapped(edgeIndexList(indexBelow),1)).^2 +...
-    (pointsUnwrapped(edgeIndexList(indexAbove),2) - pointsUnwrapped(edgeIndexList(indexBelow),2)).^2);
+plot(pointsUnwrapped(edgeIndexList(indexBelow),1), pointsUnwrapped(edgeIndexList(indexBelow),2), 'md');
 
-surfaceDistance = distanceMatrix(edgeIndexList(indexAbove), edgeIndexList(indexBelow));
+% Do embedding by placing extra points into space - does not seem to work...
+% From: https://stats.stackexchange.com/questions/368331/project-new-point-into-mds-space
 
-pointsUnwrapped = pointsUnwrapped/unwrappedDistance*surfaceDistance;
+sparsePointsUnwrapped = zeros(length(sparsePointsChoosen),2, 'single');
+
+% Take column wise mean on orginal distance map 
+coloumnMeansDistanceMatrix = mean(distanceMatrixTemp,2);
+
+embeddingPseudoinverse = pinv(pointsUnwrapped(:,1:2));
+
+for iPoint = 1:length(sparsePointsChoosen)
+
+%     sparsePointsUnwrapped(iPoint,:) = -0.5*pointsUnwrapped(:,1:2)\(distanceMatrixSparse(:,iPoint).^2 -...
+%         coloumnMeansDistanceMatrix);
+
+    sparsePointsUnwrapped(iPoint,:) = coeff'*(distanceMatrixSparse(:,iPoint).^1 -...
+         coloumnMeansDistanceMatrix);
+end
+
+plot(sparsePointsUnwrapped(:,1), sparsePointsUnwrapped(:,2), 'r.');
+
+% Do embedding by mds on sequential blocks of points
+if 0 
+    % Sequentially add blocks of points to calculate transforms
+    indexToUse = randperm(length(sparsePointsChoosen));
+
+    sparsePointsUnwrappedProcrustes = zeros(length(sparsePointsChoosen),2, 'single');
+
+    sparsePointsUnwrappedBSpline = zeros(length(sparsePointsChoosen),2, 'single');
+
+    blockSize = 5000;
+
+    testMapSize = ceil([max(pointsUnwrapped(:,1))-min(pointsUnwrapped(:,1)), ...
+        max(pointsUnwrapped(:,2))-min(pointsUnwrapped(:,2))]);
+
+    testMapOffset = -min(pointsUnwrapped(:,1:2));
+
+    dSize = size(distanceMatrix,1);
+
+    options.MaxRef=5;
+
+    options.Verbose=false;
+
+    for iBlock = 1:floor(length(sparsePointsChoosen)/blockSize)
+       % Get indices to use in block
+       if iBlock <  floor(length(sparsePointsChoosen)/blockSize)
+
+           indsForBlock = indexToUse((iBlock-1)*blockSize+1:iBlock*blockSize);
+       else
+
+           indsForBlock = indexToUse(iBlock*10000+1:length(sparsePointsChoosen));
+       end
+
+       distanceMatrixTemp = zeros(dSize+length(indsForBlock), dSize+length(indsForBlock))*NaN;   
+
+       % Copy in original distance matrix
+       distanceMatrixTemp(1:dSize, 1:dSize) = distanceMatrix;
+
+       % Place top block then transposed side block
+       distanceMatrixTemp(1:dSize, dSize+1:end) = distanceMatrixSparse(:, indsForBlock);
+
+       distanceMatrixTemp(dSize+1:end, 1:dSize) = distanceMatrixSparse(:, indsForBlock)';
+
+       distanceMatrixTemp = (distanceMatrixTemp + distanceMatrixTemp')/2;
+
+       %Set diagonal entries to zero
+       for jPoint = 1:size(distanceMatrixTemp,1)
+
+          distanceMatrixTemp(jPoint, jPoint) = 0;
+       end
+
+       % Scale and test plot.
+       tic
+       blockUnwrapped = mdscale(distanceMatrixTemp, 2, 'criterion', 'metricstress', 'start', 'random');
+       toc
+
+       % Align to original points using procrustaes
+       %%% Could also do 2D registration with bSpline or other...
+       [~,~,t] = procrustes(pointsUnwrapped(:,1:2), blockUnwrapped(1:dSize,:)); 
+
+       %Apply transform to all points 
+       blockUnwrappedProcrustes = t.b*blockUnwrapped*t.T + t.c(1,:);
+
+       plot(blockUnwrappedProcrustes(1:dSize,1), blockUnwrappedProcrustes(1:dSize,2), 'r.');
+
+    %    plot(blockUnwrappedProcrustes(dSize+1:end,1), blockUnwrappedProcrustes(dSize+1:end,2), ...
+    %        '.' , 'color', [0.5 0 0]);
+
+       % Align coordinates using bspline registration
+       [O_trans, Spacing] = point_registration(testMapSize, blockUnwrappedProcrustes(1:dSize,:)+testMapOffset, ...
+            pointsUnwrapped(:,1:2)+testMapOffset, options);
+
+       blockUnwrappedBSpline = bspline_trans_points_double(O_trans, Spacing, blockUnwrappedProcrustes+testMapOffset)-testMapOffset;
+
+       plot(blockUnwrappedBSpline(1:dSize,1), blockUnwrappedBSpline(1:dSize,2), 'g.');
+
+    %    plot(blockUnwrappedBSpline(dSize+1:end,1), blockUnwrappedBSpline(dSize+1:end,2), ...
+    %        '.' , 'color', [ 0 0.5 0]);
+
+       %Try making bspline diffeomorphic - removes effect
+    %    [O_trans,Spacing]=MakeDiffeomorphic(O_trans,Spacing,testMapSize);
+    %    
+    %    blockUnwrappedBSpline = bspline_trans_points_double(O_trans, Spacing, blockUnwrappedProcrustes(1:dSize,:)+testMapOffset)-testMapOffset;
+
+       % Save into seperate arrays
+       sparsePointsUnwrappedProcrustes(indsForBlock,:) = blockUnwrappedProcrustes(dSize+1:end,:);
+
+       sparsePointsUnwrappedBSpline(indsForBlock,:) = blockUnwrappedBSpline(dSize+1:end,:);
+    end
+
+    figure;
+
+    subplot(2,1,1); hold on; axis equal
+
+    plot(pointsUnwrapped(:,1), pointsUnwrapped(:,2), 'kx');
+
+    plot(pointsUnwrapped(edgeIndexList(indexAbove),1), pointsUnwrapped(edgeIndexList(indexAbove),2), 'gd');
+
+    plot(pointsUnwrapped(edgeIndexList(indexBelow),1), pointsUnwrapped(edgeIndexList(indexBelow),2), 'md');
+
+    plot(sparsePointsUnwrappedProcrustes(:,1), sparsePointsUnwrappedProcrustes(:,2), 'm.')
+
+    title('procrustes')
+
+    subplot(2,1,2); hold on; axis equal
+
+    plot(pointsUnwrapped(:,1), pointsUnwrapped(:,2), 'kx');
+
+    plot(pointsUnwrapped(edgeIndexList(indexAbove),1), pointsUnwrapped(edgeIndexList(indexAbove),2), 'gd');
+
+    plot(pointsUnwrapped(edgeIndexList(indexBelow),1), pointsUnwrapped(edgeIndexList(indexBelow),2), 'md');
+
+    plot(sparsePointsUnwrappedBSpline(:,1), sparsePointsUnwrappedBSpline(:,2), 'r.')
+
+    title('bspline')
+
+    % save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i', 'distanceMatrix', ...
+    %         edgeDistance, surfaceDistance, sparsePointsDistance, normalRadius), ...
+    %     'pointsUnwrapped','sparsePointsUnwrappedProcrustes', 'sparsePointsUnwrappedBSpline', ...
+    %     'blockSize', ...
+    %     '-v7.3', '-append');
+end
+
+%% Test plot results
+
 
 targetSubscripts = [pointsUnwrapped(:,1) ones(size(pointsUnwrapped,1),1)*volumeSize(2)/2, pointsUnwrapped(:,2)];
-
-
 
 figure; 
 subplot(1, 2, 1); hold on; axis equal; set(gca, 'Clipping', 'off'); axis off
@@ -1701,9 +1884,6 @@ line([aleuroneEdgeSubscriptArray(edgePointsChoosen(indexBelow),1) aleuroneEdgeSu
 %     aleuroneEdgeSubscriptArray(edgePointsChoosen(i),3), sprintf('%i', i ));
 % end
 
-surfaceIndexList = 1:length(surfacePointsChoosen);
-edgeIndexList = length(surfacePointsChoosen)+1:size(targetSubscripts,1);
-
 subplot(1, 2, 2); hold on; axis equal; set(gca, 'Clipping', 'off'); axis off
 plot3(targetSubscripts(surfaceIndexList,1), targetSubscripts(surfaceIndexList,2), ...
     targetSubscripts(surfaceIndexList,3), 'b.')
@@ -1711,8 +1891,8 @@ plot3(targetSubscripts(surfaceIndexList,1), targetSubscripts(surfaceIndexList,2)
 plot3(targetSubscripts(edgeIndexList,1), targetSubscripts(edgeIndexList,2), ...
     targetSubscripts(edgeIndexList,3), 'r.')
 
-plot3(targetSubscripts(toRemove,1), targetSubscripts(toRemove,2), ...
-    targetSubscripts(toRemove,3), 'gx')
+% plot3(targetSubscripts(toRemove,1), targetSubscripts(toRemove,2), ...
+%     targetSubscripts(toRemove,3), 'gx')
 
 line([targetSubscripts(edgeIndexList(indexBelow),1) targetSubscripts(edgeIndexList(indexAbove),1)],...
     [targetSubscripts(edgeIndexList(indexBelow),2) targetSubscripts(edgeIndexList(indexAbove),2)],...
@@ -1730,15 +1910,21 @@ line([targetSubscripts(edgeIndexList(indexBelow),1) targetSubscripts(edgeIndexLi
 
 % Firstly create closed loop, similar problem as bee FOV
 % Just based on angles to start with, can add TSP for more complicated shapes
-sortedEdgeSubscripts = targetSubscripts(edgeIndexList, [1 3]); 
+sortedEdgeSubscripts = pointsUnwrapped(edgeIndexList, :); 
 %createSortedLoopwithTSP(targetSubscripts(edgeIndexList, [1 3]));
 
 % Mirror or claculations on full set of subscripts so they match sorted egde.
-offSetFullSubscripts = targetSubscripts(:, [1 3]);
+offSetFullSubscripts = pointsUnwrapped(:, :);
 
 offSetFullSubscripts(:,1) = offSetFullSubscripts(:,1) - mean(sortedEdgeSubscripts(:,1));
 
 offSetFullSubscripts(:,2) = offSetFullSubscripts(:,2) - mean(sortedEdgeSubscripts(:,2));
+
+offSetSparseSubscripts = sparsePointsUnwrappedBSpline;
+
+offSetSparseSubscripts(:,1) = offSetSparseSubscripts(:,1) - mean(sortedEdgeSubscripts(:,1));
+
+offSetSparseSubscripts(:,2) = offSetSparseSubscripts(:,2) - mean(sortedEdgeSubscripts(:,2));
 
 
 
@@ -1766,6 +1952,7 @@ sortedEdgeSubscripts(:,2) = -sortedEdgeSubscripts(:,2);
 
 offSetFullSubscripts(:,2) = -offSetFullSubscripts(:,2);
 
+offSetSparseSubscripts(:,2) = -offSetSparseSubscripts(:,2);
 
 
 yRange = ceil(max(sortedEdgeSubscripts(:,2)) - min(sortedEdgeSubscripts(:,2)) + 10);
@@ -1773,6 +1960,10 @@ yRange = ceil(max(sortedEdgeSubscripts(:,2)) - min(sortedEdgeSubscripts(:,2)) + 
 offSetFullSubscripts(:,1) = offSetFullSubscripts(:,1) - min(sortedEdgeSubscripts(:,1)) + 5;
 
 offSetFullSubscripts(:,2) = offSetFullSubscripts(:,2) - min(sortedEdgeSubscripts(:,2)) + 5;
+
+offSetSparseSubscripts(:,1) = offSetSparseSubscripts(:,1) - min(sortedEdgeSubscripts(:,1)) + 5;
+
+offSetSparseSubscripts(:,2) = offSetSparseSubscripts(:,2) - min(sortedEdgeSubscripts(:,2)) + 5;
 
 sortedEdgeSubscripts(:,1) = sortedEdgeSubscripts(:,1) - min(sortedEdgeSubscripts(:,1)) + 5;
 
@@ -1799,6 +1990,9 @@ for iPixel = 1:length(in)
     end
 end
 
+% Do opening on image to tidy up edge points...
+image2Plot = imopen(image2Plot, strel('disk', 2));
+
 % Get index and subscripts again
 inAleurone = find(image2Plot(:));
 
@@ -1806,38 +2000,81 @@ inAleurone = find(image2Plot(:));
 
 figure; imshow(image2Plot'); hold on;
 
-plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2))
+plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2), 'b')
 
-plot(offSetFullSubscripts(:,1), offSetFullSubscripts(:,2), '.')
+plot(offSetFullSubscripts(:,1), offSetFullSubscripts(:,2), 'rx')
+
+plot(offSetSparseSubscripts(:,1), offSetSparseSubscripts(:,2), 'g.')
 
 %% Calculate thickness and intesntiy image
 %figure; subplot(1,2,1); hist(thicknessByPoint,100)
 %subplot(1,2,2); hist(averageIntensityByPoint,100)
 
-warning('check if discontinuity improved with more sampling points, could also do local smooth')
-
 valuesToUse = find(~isnan(thicknessByPoint) & thicknessByPoint >= 2);
 
-thicknessInterpolant = scatteredInterpolant( offSetFullSubscripts(valuesToUse,1), ...
-    offSetFullSubscripts(valuesToUse,2), thicknessByPoint(valuesToUse), 'nearest','nearest');
+valuesToSparse = find(~isnan(thicknessForSparse) & thicknessForSparse >= 2);
 
-thicknessImage = zeros(xRange , yRange);
+thicknessInterpolant = scatteredInterpolant( double([offSetFullSubscripts(valuesToUse,1)' offSetSparseSubscripts(valuesToSparse,1)']'), ...
+    double([offSetFullSubscripts(valuesToUse,2)' offSetSparseSubscripts(valuesToSparse,2)']'),...
+    [thicknessByPoint(valuesToUse)' thicknessForSparse(valuesToSparse)']',...
+    'linear','none');
 
-thicknessImage(inAleurone) = thicknessInterpolant(XPointsIn, YPointsIn);
+tempImage = zeros(xRange , yRange);
 
-figure; imshow(thicknessImage'/round(max(thicknessByPoint)))
+tempImage(inAleurone) = thicknessInterpolant(XPointsIn, YPointsIn);
+
+thicknessImage = zeros(xRange , yRange, 3);
+
+thicknessImage(:,:,1) = tempImage;
+
+warning('Colour range setting is note automated')
+
+[max(thicknessByPoint) max(thicknessForSparse)]
+
+thicknessImage = (thicknessImage-2)/(18-2);
+
+cols = zeros(100,3);
+cols(1:100,1) = (1:100)/100;
+
+figure; 
+imshow(permute(thicknessImage, [2 1 3]))
+colormap(cols)
+title('Thickness'); hcb = colorbar; set(hcb,'Ticks', [0 0.5 1], 'TickLabels', {'2','10','18'})
 
 
+% Do for intensity.
+intensityInterpolant = scatteredInterpolant( double([offSetFullSubscripts(valuesToUse,1)' offSetSparseSubscripts(valuesToSparse,1)']'), ...
+    double([offSetFullSubscripts(valuesToUse,2)' offSetSparseSubscripts(valuesToSparse,2)']'),...
+    [averageIntensityByPoint(valuesToUse)' averageIntensityForSparse(valuesToSparse)']',...
+    'linear','none');
 
-intensityInterpolant = scatteredInterpolant( offSetFullSubscripts(valuesToUse,1), ...
-    offSetFullSubscripts(valuesToUse,2), averageIntensityByPoint(valuesToUse), 'nearest','nearest');
+tempImage = zeros(xRange , yRange);
 
-intensityImage = zeros(xRange , yRange);
+tempImage(inAleurone) = intensityInterpolant(XPointsIn, YPointsIn);
 
-intensityImage(inAleurone) = intensityInterpolant(XPointsIn, YPointsIn);
+intensityImage = zeros(xRange , yRange, 3);
 
-figure; imshow(intensityImage'/round(max(averageIntensityByPoint)))
+intensityImage(:,:,3) = tempImage;
 
+[max(averageIntensityByPoint) max(averageIntensityForSparse)]
+[min(averageIntensityByPoint) min(averageIntensityForSparse)]
+
+intensityImage = (intensityImage-50)/(250-50);
+
+cols = zeros(100,3);
+cols(1:100,3) = (1:100)/100;
+
+figure;
+imshow(permute(intensityImage, [2 1 3]))
+colormap(cols)
+title('Intensity'); hcb = colorbar; set(hcb,'Ticks', [0 0.5 1], 'TickLabels', {'50','150','250'})
+
+% Make overlay.
+overlayImage = thicknessImage + intensityImage;
+
+figure;
+imshow(permute(overlayImage, [2 1 3]));
+title('Overlay');
 %% Calculate distance error images
 % Need to distance calculate between points in 2D.
 distanceMatrix2D = zeros(nPoints, nPoints)*NaN;
