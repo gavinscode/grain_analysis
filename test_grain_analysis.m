@@ -895,41 +895,36 @@ curveSubscriptArray(:,3) = curveSubscriptArray(:,3) + zBoundsNew(1) - 1;
 tempIndexList = sub2ind(volumeSize, curveSubscriptArray(:,1), curveSubscriptArray(:,2), curveSubscriptArray(:,3));
 
 % Code curve into grain exterior as 2 to distinguish it later.
-grainExterior = uint8(grainExterior);
-grainExterior(tempIndexList(grainExterior(tempIndexList) == 1)) = 2;
+%grainExterior = uint8(grainExterior);
+grainExterior(tempIndexList(grainExterior(tempIndexList) == 1)) = 0;
 
 figure; imshow(sum(grainExterior(:,:,1623),3)/2)
 
 %clear centreCurveVolume, 
 
 %% Get exterior surface of aleurone.
-aleuroneExterior = (grainExterior == 1) & (grainVolumeAligned == ALEURONE_INDEX);
+aleuroneExterior = grainExterior & (grainVolumeAligned == ALEURONE_INDEX);
 
-warning('Keep islands for 2D map')
-
-% Take largest connected region of surface.
-tempCC = bwconncomp(aleuroneExterior, 26);
-
-tempStats = regionprops(tempCC, 'PixelIdxList');
-
-% Get number of voxels in each region. 
-nRegions = length(tempStats); voxelsPerRegionArray = zeros(nRegions,1);
-
-for iRegion = 1:nRegions
-    voxelsPerRegionArray(iRegion) = length(tempStats(iRegion).PixelIdxList);
-end
-
-% Largest will generally be much larger than others.
-[~, tempIndex] = max(voxelsPerRegionArray); tempStats(tempIndex) = [];
-
-% Remove other regions from volume.
-for iRegion = 1:nRegions-1
-    aleuroneExterior(tempStats(iRegion).PixelIdxList) = 0;
-end
-
-
-
-warning('Keep hole borders to use on 2D map')
+%%% Try keeping all surface and just limit edge 
+% % Take largest connected region of surface.
+% tempCC = bwconncomp(aleuroneExterior, 26);
+% 
+% tempStats = regionprops(tempCC, 'PixelIdxList');
+% 
+% % Get number of voxels in each region. 
+% nRegions = length(tempStats); voxelsPerRegionArray = zeros(nRegions,1);
+% 
+% for iRegion = 1:nRegions
+%     voxelsPerRegionArray(iRegion) = length(tempStats(iRegion).PixelIdxList);
+% end
+% 
+% % Largest will generally be much larger than others.
+% [~, tempIndex] = max(voxelsPerRegionArray); tempStats(tempIndex) = [];
+% 
+% % Remove other regions from volume.
+% for iRegion = 1:nRegions-1
+%     aleuroneExterior(tempStats(iRegion).PixelIdxList) = 0;
+% end
 
 % Get edge of aleurone surface.
 aleuroneEdge = imdilate(grainExterior & (grainVolumeAligned == ENDOSPERM_INDEX | ...
@@ -977,9 +972,43 @@ nIndex = length(aleuroneEdgeIndexList); aleuroneEdgeSubscriptArray = zeros(nInde
 
 clear aleuroneEdge
 
-%% Get germ surfaces 
+%Get subscripts and volume of interior aleurone surface - note, may not be
+%fully connected
+
+aleuroneInterior = grainVolumeAligned;
+
+aleuroneInterior(aleuroneInterior == ALEURONE_INDEX) = 0;
+
+% Aleruone interior label is currently endosperm and germ.
+aleuroneInterior = logical(aleuroneInterior);
+
+% Exterior is outer volume, and grow into other volume.
+aleuroneInterior = imdilate(aleuroneInterior, STREL_18_CONNECTED);
+
+aleuroneInterior = (grainVolumeAligned == ALEURONE_INDEX) & aleuroneInterior & ...
+    ~grainExterior;
+
+% Get aleurone interior surface subscripts.
+aleuroneInteriorIndexList = find(aleuroneInterior);
+
+nIndex = length(aleuroneInteriorIndexList); aleuroneInteriorSubscriptArray = zeros(nIndex, 3);
+
+[aleuroneInteriorSubscriptArray(:,1), aleuroneInteriorSubscriptArray(:,2), aleuroneInteriorSubscriptArray(:,3)] = ...
+    ind2sub(volumeSize, aleuroneInteriorIndexList);
+
+% Test plot.
+figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
+ plot3(aleuroneSurfaceSubscriptArray(1:1000:end,1), aleuroneSurfaceSubscriptArray(1:1000:end,2), ...
+     aleuroneSurfaceSubscriptArray(1:1000:end,3), 'b.')
+ 
+plot3(aleuroneEdgeSubscriptArray(:,1), aleuroneEdgeSubscriptArray(:,2), ...
+    aleuroneEdgeSubscriptArray(:,3), 'r.')
+
+ plot3(aleuroneInteriorSubscriptArray(1:100:end,1), aleuroneInteriorSubscriptArray(1:100:end,2), ...
+     aleuroneInteriorSubscriptArray(1:100:end,3), 'm.')
+%% Get germ surfaces
 % Take largest region for germ.
-germExterior = (grainExterior == 1) & (grainVolumeAligned == GERM_INDEX);
+germExterior = grainExterior & (grainVolumeAligned == GERM_INDEX);
 
 % Take largest connected region of surface.
 tempCC = bwconncomp(germExterior, 26);
@@ -1009,12 +1038,8 @@ nIndex = length(germSurfaceIndexList); germSurfaceSubscriptArray = zeros(nIndex,
     ind2sub(volumeSize, germSurfaceIndexList);
 
 clear germExterior
-
-warning('Make but summary plot later on')
-
 %% Get exterior surface except for crease
-
-endospermExterior = (grainExterior == 1) & (grainVolumeAligned == ENDOSPERM_INDEX);
+endospermExterior = grainExterior & (grainVolumeAligned == ENDOSPERM_INDEX);
 
 % Take tips of aleurone points.
 curveCentre = mean(curveSubscriptArray(:,1));
@@ -1031,11 +1056,6 @@ tempInd = find(aleuroneEdgeSubscriptArray(:,1) > curveCentre);
 
 topRightTipInd = tempInd(topRightTipInd);
 
-
-plot3(aleuroneEdgeSubscriptArray(topLeftTipInd,1), aleuroneEdgeSubscriptArray(topLeftTipInd,2), aleuroneEdgeSubscriptArray(topLeftTipInd,3), 'ro')
-
-plot3(aleuroneEdgeSubscriptArray(topRightTipInd,1), aleuroneEdgeSubscriptArray(topRightTipInd,2), aleuroneEdgeSubscriptArray(topRightTipInd,3), 'ro')
-
 % Find closest points on aleurone surface.
 [~, nearestGermLeft] = min(sqrt((germSurfaceSubscriptArray(:,1) - aleuroneEdgeSubscriptArray(topLeftTipInd,1)).^2 + ...
     (germSurfaceSubscriptArray(:,2) - aleuroneEdgeSubscriptArray(topLeftTipInd,2)).^2 + ...
@@ -1045,20 +1065,17 @@ plot3(aleuroneEdgeSubscriptArray(topRightTipInd,1), aleuroneEdgeSubscriptArray(t
     (germSurfaceSubscriptArray(:,2) - aleuroneEdgeSubscriptArray(topRightTipInd,2)).^2 + ...
     (germSurfaceSubscriptArray(:,3) - aleuroneEdgeSubscriptArray(topRightTipInd,3)).^2 ));
 
-plot3(germSurfaceSubscriptArray(nearestGermLeft,1), germSurfaceSubscriptArray(nearestGermLeft,2), germSurfaceSubscriptArray(nearestGermLeft,3), 'ro')
-
-plot3(germSurfaceSubscriptArray(nearestGermRight,1), germSurfaceSubscriptArray(nearestGermRight,2), germSurfaceSubscriptArray(nearestGermRight,3), 'ro')
-
 % Draw line between both sets of points, and remove from endosperm exterior
 
-% Dilate line to ensure surface is broken
+% Dilate line to ensure surface is cut.
 dilateRadius = 2;
 
-dMapFromGerm = bwdistgeodesic(logical(grainExterior), sub2ind(volumeSize, ...
+% Left side.
+dMapFromGerm = bwdistgeodesic(grainExterior, sub2ind(volumeSize, ...
     aleuroneEdgeSubscriptArray(topLeftTipInd,1), aleuroneEdgeSubscriptArray(topLeftTipInd,2),...
     aleuroneEdgeSubscriptArray(topLeftTipInd,3)), 'quasi-euclidean');
 
-dMapFromAl = bwdistgeodesic(logical(grainExterior), sub2ind(volumeSize, ...
+dMapFromAl = bwdistgeodesic(grainExterior, sub2ind(volumeSize, ...
     germSurfaceSubscriptArray(nearestGermLeft,1), germSurfaceSubscriptArray(nearestGermLeft,2),...
     germSurfaceSubscriptArray(nearestGermLeft,3)), 'quasi-euclidean');
 
@@ -1079,14 +1096,12 @@ nIndex = length(leftLineInds); leftLineSubscripts = zeros(nIndex, 3);
 [leftLineSubscripts(:,1), leftLineSubscripts(:,2), leftLineSubscripts(:,3)] = ...
     ind2sub(volumeSize, leftLineInds);
 
-
-
-
-dMapFromGerm = bwdistgeodesic(logical(grainExterior), sub2ind(volumeSize, ...
+% Right side.
+dMapFromGerm = bwdistgeodesic(grainExterior, sub2ind(volumeSize, ...
     aleuroneEdgeSubscriptArray(topRightTipInd,1), aleuroneEdgeSubscriptArray(topRightTipInd,2),...
     aleuroneEdgeSubscriptArray(topRightTipInd,3)), 'quasi-euclidean');
 
-dMapFromAl = bwdistgeodesic(logical(grainExterior), sub2ind(volumeSize, ...
+dMapFromAl = bwdistgeodesic(grainExterior, sub2ind(volumeSize, ...
     germSurfaceSubscriptArray(nearestGermRight,1), germSurfaceSubscriptArray(nearestGermRight,2),...
     germSurfaceSubscriptArray(nearestGermRight,3)), 'quasi-euclidean');
 
@@ -1109,20 +1124,12 @@ nIndex = length(rightLineInds); rightLineSubscripts = zeros(nIndex, dilateRadius
 
 clear dMapFromGerm, clear dMapFromAl, clear dMap, clear lineVolume;
 
-
-
-% Cut from endosperm exterior then plot - may remove wide portion but will be closed
+% Cut from endosperm exterior.
 endospermExterior(leftLineInds) = 0;
 
 endospermExterior(rightLineInds) = 0;
 
-plot3(leftLineSubscripts(:,1), leftLineSubscripts(:,2), leftLineSubscripts(:,3), 'kx')
-
-plot3(rightLineSubscripts(:,1), rightLineSubscripts(:,2), rightLineSubscripts(:,3), 'kx')
-
-%% Split endosperm parts, remove largest that extends to bottom third of grain
-
-% Take largest connected region of surface.
+% Split endosperm parts, remove largest that extends to bottom third of grain
 tempCC = bwconncomp(endospermExterior, 26);
 
 tempStats = regionprops(tempCC, 'PixelIdxList', 'PixelList');
@@ -1135,7 +1142,7 @@ minZPerRegion = zeros(nRegions,1);
 for iRegion = 1:nRegions
     voxelsPerRegionArray(iRegion) = length(tempStats(iRegion).PixelIdxList);
     
-    minZPerRegion(iRegion) = min(tempStats(sortI(iRegion)).PixelList(:,3));
+    minZPerRegion(iRegion) = min(tempStats(iRegion).PixelList(:,3));
 end
 
 % Sort from large to small
@@ -1149,6 +1156,9 @@ for iRegion = 1:2
     endospermExterior(tempStats(sortLength(sortMinZ(iRegion))).PixelIdxList) = 0;
 end
 
+%%% Note that some fluff along crease remains.
+%%% Could grow on surface to connect these to main crease?
+
 endospermSurfaceIndexList = find(endospermExterior);
 
 nIndex = length(endospermSurfaceIndexList); endospermSurfaceSubscriptArray = zeros(nIndex, 3);
@@ -1156,30 +1166,30 @@ nIndex = length(endospermSurfaceIndexList); endospermSurfaceSubscriptArray = zer
 [endospermSurfaceSubscriptArray(:,1), endospermSurfaceSubscriptArray(:,2), endospermSurfaceSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, endospermSurfaceIndexList);
 
+% plot
+figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
+
+plot3(aleuroneSurfaceSubscriptArray(1:100:end,1), aleuroneSurfaceSubscriptArray(1:100:end,2), ...
+     aleuroneSurfaceSubscriptArray(1:100:end,3), 'b.')
+ 
 plot3(endospermSurfaceSubscriptArray(:,1), endospermSurfaceSubscriptArray(:,2), endospermSurfaceSubscriptArray(:,3), 'g.')
 
 plot3(germSurfaceSubscriptArray(:,1), germSurfaceSubscriptArray(:,2), germSurfaceSubscriptArray(:,3), 'y.')
 
-%% Get subscripts and volume of interior aleurone surface
-%%% Would be good to get interior/exterior surface area of aleurone (probably also possible in amira).
+plot3(leftLineSubscripts(:,1), leftLineSubscripts(:,2), leftLineSubscripts(:,3), 'kx')
 
-aleuroneInterior = grainVolumeAligned;
+plot3(rightLineSubscripts(:,1), rightLineSubscripts(:,2), rightLineSubscripts(:,3), 'kx')
 
-aleuroneInterior(aleuroneInterior == ALEURONE_INDEX) = 0;
+%% Check that aleurone and endosperm form continous region
 
-% Aleruone interior label is currently endosperm and germ.
-aleuroneInterior = logical(aleuroneInterior);
+tempExterior = unint8(endospermExterior) + uint8(aleuroneExterior)*2;
 
-% Exterior is outer volume, and grow into other volume.
-aleuroneInterior = imdilate(aleuroneInterior, STREL_18_CONNECTED);
-
-aleuroneInterior = (grainVolumeAligned == ALEURONE_INDEX) & aleuroneInterior & ...
-    ~grainExterior;
+tempExterior(aleuroneEdgeIndexList) = 3;
 
 % Take largest connected region.
-tempCC = bwconncomp(aleuroneInterior, 18);
+tempCC = bwconncomp(logical(tempExterior), 18);
 
-tempStats = regionprops(tempCC, 'PixelIdxList');
+tempStats = regionprops(tempCC, 'PixelIdxList', 'PixelList');
 
 % Get number of voxels in each region. 
 nRegions = length(tempStats); voxelsPerRegionArray = zeros(nRegions,1);
@@ -1191,29 +1201,25 @@ end
 % Largest will generally be much larger than others.
 [~, tempIndex] = max(voxelsPerRegionArray); tempStats(tempIndex) = [];
 
-% Remove other regions from volume.
+error('Finish')
+% Remove other regions from volumes and lists.
 for iRegion = 1:nRegions-1
-    aleuroneInterior(tempStats(iRegion).PixelIdxList) = 0;
+    for jIndex = tempStats(iRegion).PixelIdxList
+        value = tempExterior(jIndex);
+        switch value
+            case 1 %endosperm
+                endospermExterior(jIndex) = 0;
+                
+            case 2 %aleurone surface
+                aleuroneExterior = 0;
+                
+            case 3 %aleurone edge
+                aleuroneExterior = 0;
+        end
+    end
 end
 
-% Get aleurone interior surface subscripts.
-aleuroneInteriorIndexList = find(aleuroneInterior);
-
-nIndex = length(aleuroneInteriorIndexList); aleuroneInteriorSubscriptArray = zeros(nIndex, 3);
-
-[aleuroneInteriorSubscriptArray(:,1), aleuroneInteriorSubscriptArray(:,2), aleuroneInteriorSubscriptArray(:,3)] = ...
-    ind2sub(volumeSize, aleuroneInteriorIndexList);
-
-% Test plot.
-figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
- plot3(aleuroneSurfaceSubscriptArray(1:1000:end,1), aleuroneSurfaceSubscriptArray(1:1000:end,2), ...
-     aleuroneSurfaceSubscriptArray(1:1000:end,3), 'b.')
-plot3(aleuroneEdgeSubscriptArray(:,1), aleuroneEdgeSubscriptArray(:,2), ...
-    aleuroneEdgeSubscriptArray(:,3), 'r.')
- plot3(aleuroneInteriorSubscriptArray(1:100:end,1), aleuroneInteriorSubscriptArray(1:100:end,2), ...
-     aleuroneInteriorSubscriptArray(1:100:end,3), 'm.')
-
-%clear grainExterior
+clear tempExterior
 
 %% Calculate surface area of aleurone exterior and interior
 %https://se.mathworks.com/matlabcentral/answers/93023-is-there-a-matlab-function-that-can-compute-the-area-of-my-patch
@@ -1258,17 +1264,25 @@ if calculateArea
     clear tempSurf
 end
 %% Allocate points equally across surface and border, as in bee
+%Create combined surface of endosperm and aleurone
+combinedSurfaceSubscripts = [aleuroneSurfaceSubscriptArray' endospermSurfaceSubscriptArray']';
+
+combinedIdentity = zeros(size(combinedSurfaceSubscripts,1),1);
+
+combinedIdentity(1:size(aleuroneSurfaceSubscriptArray,1)) = 1;
+
+%To control choosing points
 edgePointsToChoose = 1:length(aleuroneEdgeIndexList);
 
-surfacePointsToChoose = 1:length(aleuroneSurfaceIndexList);
+surfacePointsToChoose = 1:size(combinedSurfaceSubscripts,1);
 
-sparsePointsToChoose = 1:length(aleuroneSurfaceIndexList);
+sparsePointsToChoose = 1:size(combinedSurfaceSubscripts,1);
 
 edgePointsChoosen = zeros(length(aleuroneEdgeIndexList), 1, 'logical');
 
-surfacePointsChoosen = zeros(length(aleuroneSurfaceIndexList), 1, 'logical');
+surfacePointsChoosen = zeros(size(combinedSurfaceSubscripts,1), 1, 'logical');
 
-sparsePointsChoosen = zeros(length(aleuroneSurfaceIndexList), 1, 'logical');
+sparsePointsChoosen = zeros(size(combinedSurfaceSubscripts,1), 1, 'logical');
 
 % for 300, 500 gives 12 9 points 
 % for 20, 50, gives 343 1314 points 
@@ -1285,7 +1299,7 @@ sparsePointsChoosen = zeros(length(aleuroneSurfaceIndexList), 1, 'logical');
 
 % For test, seems good to get dense on border and moderate on surface
 
-edgeDistance = 25; %10
+edgeDistance = 20; %10
 
 surfaceDistance = 50; %50
 
@@ -1309,9 +1323,9 @@ while ~isempty(edgePointsToChoose)
     edgePointsToChoose(distances < edgeDistance) = [];
     
     % Remove surface points within edge distance
-    distances = sqrt( (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,1) - pointChoosen(1)).^2 + ...
-        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,2) - pointChoosen(2)).^2 + ...
-        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,3) - pointChoosen(3)).^2);
+    distances = sqrt( (combinedSurfaceSubscripts(surfacePointsToChoose,1) - pointChoosen(1)).^2 + ...
+        (combinedSurfaceSubscripts(surfacePointsToChoose,2) - pointChoosen(2)).^2 + ...
+        (combinedSurfaceSubscripts(surfacePointsToChoose,3) - pointChoosen(3)).^2);
     
     surfacePointsToChoose(distances < edgeDistance) = [];
 end
@@ -1322,16 +1336,16 @@ edgePointsChoosen = find(edgePointsChoosen);
 % Select surface points from remaining, again going down Z
 tic
 while ~isempty(surfacePointsToChoose)
-    [~, ind] = max(aleuroneSurfaceSubscriptArray(surfacePointsToChoose,3));
+    [~, ind] = max(combinedSurfaceSubscripts(surfacePointsToChoose,3));
     
-    pointChoosen = aleuroneSurfaceSubscriptArray(surfacePointsToChoose(ind),:);
+    pointChoosen = combinedSurfaceSubscripts(surfacePointsToChoose(ind),:);
     
     surfacePointsChoosen(surfacePointsToChoose(ind)) = 1;
     
     % Remove other surface points within surface distance
-    distances = sqrt( (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,1) - pointChoosen(1)).^2 + ...
-        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,2) - pointChoosen(2)).^2 + ...
-        (aleuroneSurfaceSubscriptArray(surfacePointsToChoose,3) - pointChoosen(3)).^2);
+    distances = sqrt( (combinedSurfaceSubscripts(surfacePointsToChoose,1) - pointChoosen(1)).^2 + ...
+        (combinedSurfaceSubscripts(surfacePointsToChoose,2) - pointChoosen(2)).^2 + ...
+        (combinedSurfaceSubscripts(surfacePointsToChoose,3) - pointChoosen(3)).^2);
     
     surfacePointsToChoose(distances < surfaceDistance) = [];
 end
@@ -1341,21 +1355,21 @@ surfacePointsChoosen = find(surfacePointsChoosen);
 
 % Select sparse points by z layer for speed
 
-sparseLayers = min(aleuroneSurfaceSubscriptArray(:,3)):sparsePointsDistance: ...
-    max(aleuroneSurfaceSubscriptArray(:,3));
+sparseLayers = min(combinedSurfaceSubscripts(:,3)):sparsePointsDistance: ...
+    max(combinedSurfaceSubscripts(:,3));
 tic
 for iLayer = sparseLayers
     
-    pointsOnLayer = find(aleuroneSurfaceSubscriptArray(sparsePointsToChoose,3) == iLayer);
+    pointsOnLayer = find(combinedSurfaceSubscripts(sparsePointsToChoose,3) == iLayer);
     
     while ~isempty(pointsOnLayer)
         %Select from max Y down
-        %[~, ind] = max(aleuroneSurfaceSubscriptArray(sparsePointsToChoose(pointsOnLayer),2));
+        %[~, ind] = max(combinedSurfaceSubscripts(sparsePointsToChoose(pointsOnLayer),2));
         
         % Take random point on layer
         ind = round(rand(1)*(length(pointsOnLayer)-1)) + 1;
         
-        pointChoosen = aleuroneSurfaceSubscriptArray(sparsePointsToChoose(pointsOnLayer(ind)),:);
+        pointChoosen = combinedSurfaceSubscripts(sparsePointsToChoose(pointsOnLayer(ind)),:);
 
        % Use different test scheme for sparse points to try and improve speed.
        % Check if point less than sparse distance to any previously choosen edge or surface points.
@@ -1363,8 +1377,8 @@ for iLayer = sparseLayers
         testEdge = sum( sqrt( (aleuroneEdgeSubscriptArray(edgePointsChoosen,1) - pointChoosen(1)).^2 + ...
             (aleuroneEdgeSubscriptArray(edgePointsChoosen,2) - pointChoosen(2)).^2) < sparsePointsDistance) == 0;
 
-        testSurface = sum( sqrt( (aleuroneSurfaceSubscriptArray(surfacePointsChoosen,1) - pointChoosen(1)).^2 + ...
-            (aleuroneSurfaceSubscriptArray(surfacePointsChoosen,2) - pointChoosen(2)).^2) < sparsePointsDistance) == 0;
+        testSurface = sum( sqrt( (combinedSurfaceSubscripts(surfacePointsChoosen,1) - pointChoosen(1)).^2 + ...
+            (combinedSurfaceSubscripts(surfacePointsChoosen,2) - pointChoosen(2)).^2) < sparsePointsDistance) == 0;
 
         if testEdge && testSurface
             % If not, test distance to exisiting sparse points - seems inefficient
@@ -1378,8 +1392,8 @@ for iLayer = sparseLayers
 
             % Remove other surface points within surface distance from both lists
             % Note: now done in 2D
-            indsOut = find(sqrt( (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(pointsOnLayer),1) - pointChoosen(1)).^2 + ...
-                (aleuroneSurfaceSubscriptArray(sparsePointsToChoose(pointsOnLayer),2) - pointChoosen(2)).^2) < sparsePointsDistance);
+            indsOut = find(sqrt( (combinedSurfaceSubscripts(sparsePointsToChoose(pointsOnLayer),1) - pointChoosen(1)).^2 + ...
+                (combinedSurfaceSubscripts(sparsePointsToChoose(pointsOnLayer),2) - pointChoosen(2)).^2) < sparsePointsDistance);
             
             pointsOnLayer(indsOut) = [];
 
@@ -1400,14 +1414,17 @@ sparsePointsChoosen = find(sparsePointsChoosen);
 [length(edgePointsChoosen) length(surfacePointsChoosen) length(sparsePointsChoosen)]
 
 tesFig = figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
-plot3(aleuroneSurfaceSubscriptArray(surfacePointsChoosen,1), aleuroneSurfaceSubscriptArray(surfacePointsChoosen,2), ...
-    aleuroneSurfaceSubscriptArray(surfacePointsChoosen,3), 'go')
+plot3(combinedSurfaceSubscripts(surfacePointsChoosen,1), combinedSurfaceSubscripts(surfacePointsChoosen,2), ...
+    combinedSurfaceSubscripts(surfacePointsChoosen,3), 'gx')
+
 plot3(aleuroneEdgeSubscriptArray(edgePointsChoosen,1), aleuroneEdgeSubscriptArray(edgePointsChoosen,2), ...
     aleuroneEdgeSubscriptArray(edgePointsChoosen,3), 'ro')
-plot3(aleuroneSurfaceSubscriptArray(sparsePointsChoosen,1), aleuroneSurfaceSubscriptArray(sparsePointsChoosen,2), ...
-    aleuroneSurfaceSubscriptArray(sparsePointsChoosen,3), 'mo')
-plot3(aleuroneSurfaceSubscriptArray(1:100:end,1), aleuroneSurfaceSubscriptArray(1:100:end,2), ...
-     aleuroneSurfaceSubscriptArray(1:100:end,3), 'b.')
+
+plot3(combinedSurfaceSubscripts(sparsePointsChoosen,1), combinedSurfaceSubscripts(sparsePointsChoosen,2), ...
+    combinedSurfaceSubscripts(sparsePointsChoosen,3), 'm.')
+
+plot3(endospermSurfaceSubscriptArray(1:1:end,1), endospermSurfaceSubscriptArray(1:1:end,2), ...
+     endospermSurfaceSubscriptArray(1:1:end,3), 'b.')
 %% Load grey image.
 % Loading tiff stack takes a while.
 greyVolume = loadtiffstack(greyDirectory, 1);
@@ -1426,22 +1443,27 @@ clear greyVolume
 %temp(1, 1, 1) = 1; temp(2, 2, 2) = 1; temp(3, 3, 3) = 1;
 %bwdistgeodesic(temp, 1,'quasi-euclidean')
 
-subscriptsToInterpolate = [aleuroneSurfaceSubscriptArray(surfacePointsChoosen,:)'...
+subscriptsToInterpolate = [combinedSurfaceSubscripts(surfacePointsChoosen,:)'...
     aleuroneEdgeSubscriptArray(edgePointsChoosen,:)']';
 
 indsToInterpolate = sub2ind(volumeSize, subscriptsToInterpolate(:,1), subscriptsToInterpolate(:,2),...
     subscriptsToInterpolate(:,3));
 
-indsForSparse = sub2ind(volumeSize, aleuroneSurfaceSubscriptArray(sparsePointsChoosen,1), ...
-    aleuroneSurfaceSubscriptArray(sparsePointsChoosen,2), aleuroneSurfaceSubscriptArray(sparsePointsChoosen,3));
+interpolatedIdentity = [combinedIdentity(surfacePointsChoosen)' ones(1,length(edgePointsChoosen))]';
 
-subscriptsForSparse = aleuroneSurfaceSubscriptArray(sparsePointsChoosen,:);
+indsForSparse = sub2ind(volumeSize, combinedSurfaceSubscripts(sparsePointsChoosen,1), ...
+    combinedSurfaceSubscripts(sparsePointsChoosen,2), combinedSurfaceSubscripts(sparsePointsChoosen,3));
+
+subscriptsForSparse = combinedSurfaceSubscripts(sparsePointsChoosen,:);
+
+sparseIdentity = combinedIdentity(sparsePointsChoosen);
 
 nPoints = length(indsToInterpolate);
 
 nSparsePoints = length(indsForSparse);
 
-
+% Combine index lists for normal calculations.
+totalIndexList = [aleuroneSurfaceIndexList' endospermSurfaceIndexList']';
 
 % Find sparse points associated with each main point, these will be referenced 
 % later for claculating normals.
@@ -1495,10 +1517,12 @@ grid3D.maxBound = volumeSize';
 % Loop through geodesic distance calculations for each point then put into matrix.
 %parpool('local', 4);
 
-parfor iPoint = 1:nPoints %
-%for iPoint = 2273 %1:nPoints 
+%parfor iPoint = 1:nPoints %
+for iPoint = 1000; %2273 %1:nPoints 
     tic
-    dMap = bwdistgeodesic(aleuroneExterior, indsToInterpolate(iPoint),'quasi-euclidean');
+    % Try using grain exterior volume, can traverese germ, but not curve cut
+    % aleuroneExterior 
+    dMap = bwdistgeodesic(grainExterior, indsToInterpolate(iPoint),'quasi-euclidean');
     toc
     
     % Pause to let matlab free memory (?)
@@ -1510,12 +1534,12 @@ parfor iPoint = 1:nPoints %
     
     % Also calculate normal and use to get thickness.
     % Select points based on distance map to prevent picking points on both sides of crease.
-    indexListInRange = find(dMap(aleuroneSurfaceIndexList) < normalRadius);
+    indexListInRange = find(dMap(totalIndexList) < normalRadius);
     
     % Make list with this location and sparse points
     sparseLinks = pointToSparseLinks{iPoint};
     
-    % Make temporay arrays for results.
+    % Make temporary arrays for results.
     tempNormalArray = zeros(length(sparseLinks),3)*NaN;
     
     tempInternalIntersectArray = zeros(length(sparseLinks),3)*NaN;
@@ -1527,17 +1551,23 @@ parfor iPoint = 1:nPoints %
     subscriptsToCalculate = [subscriptsToInterpolate(iPoint,:)' ...
         subscriptsForSparse(sparseLinks,:)']';
     
-    for jSubscript = 1:size(subscriptsToCalculate,1)
+    pointIdentities = [interpolatedIdentity(iPoint) sparseIdentity(sparseLinks)']';
+    
+    for jSubscript = 1:size(subscriptsToCalculate,1) 
         currentSubscript = subscriptsToCalculate(jSubscript,:);
         
-        %%% Could use iPoint as reference for sparse points
-        
         tempNormal = normaltosurface(currentSubscript , ...
-            aleuroneSurfaceSubscriptArray(indexListInRange,:), [], [], normalRadius);
+            combinedSurfaceSubscripts(indexListInRange,:), [], [], normalRadius);
 
         gotDirection = 0;
         scale = 1;
 
+        if pointIdentities(jSubscript)
+            testValue = ALEURONE_INDEX;
+        else
+           testValue = ENDOSPERM_INDEX; 
+        end
+        
         % Keeping testing normals until correct solution determined.
         while ~gotDirection && scale < 10
 
@@ -1545,12 +1575,12 @@ parfor iPoint = 1:nPoints %
             coordsBack = round(currentSubscript - tempNormal*scale);  
 
             % Test normal points into aleurone, or otherwise they go into volume
-            if grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) == ALEURONE_INDEX && ...
-                    grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) ~= ALEURONE_INDEX
+            if grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) == testValue && ...
+                    grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) ~= testValue
                 % Should be ok.
                 gotDirection = 1;
-            elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) ~= ALEURONE_INDEX && ...
-                    grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) == ALEURONE_INDEX
+            elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) ~= testValue && ...
+                    grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) == testValue
                 % Flip normal direction
                 tempNormal = -tempNormal;
                 gotDirection = 1;
@@ -1568,15 +1598,18 @@ parfor iPoint = 1:nPoints %
             scale = scale + 1;
         end
 
-        % Just continue if direction found.
+        %Save normal if direction found
         if gotDirection
-
             if jSubscript == 1
                 normalByPoint(iPoint,:) = tempNormal;
             else
                 tempNormalArray(jSubscript-1,:) = tempNormal;
             end
-            
+        end
+        
+        % Continue if direction found and part of aleurone
+        if gotDirection & pointIdentities(jSubscript)
+ 
             % Plot for testing - note line points out while normal actually points in.
             if testPlotNormals & jSubscript == 1
                 figure(tesFig)
@@ -1681,14 +1714,14 @@ for iPoint = 1:nPoints
     end
 end
 
-% save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i', 'distanceMatrix', ...
-%         edgeDistance, surfaceDistance, sparsePointsDistance, normalRadius), ...
-%     'edgeDistance', 'surfaceDistance', 'sparsePointsDistance', 'normalRadius',...    
-%     'distanceMatrix', 'subscriptsToInterpolate', ... 
-%     'distanceMatrixSparse', 'subscriptsForSparse',...
-%     'normalByPoint', 'internalIntersectByPoint', 'thicknessByPoint', 'averageIntensityByPoint',...
-%     'normalForSparse', 'internalIntersectForSparse', 'thicknessForSparse', 'averageIntensityForSparse',...
-%     '-v7.3');
+save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i', 'distanceMatrix', ...
+        edgeDistance, surfaceDistance, sparsePointsDistance, normalRadius), ...
+    'edgeDistance', 'surfaceDistance', 'sparsePointsDistance', 'normalRadius',...    
+    'distanceMatrix', 'subscriptsToInterpolate', 'interpolatedIdentity',... 
+    'distanceMatrixSparse', 'subscriptsForSparse', 'sparseIdentity',...
+    'normalByPoint', 'internalIntersectByPoint', 'thicknessByPoint', 'averageIntensityByPoint',...
+    'normalForSparse', 'internalIntersectForSparse', 'thicknessForSparse', 'averageIntensityForSparse',...
+    '-v7.3');
 
 %load('/Users/gavintaylor/Documents/Matlab/Temp_data/distanceMatrix_10_50_3_100.mat')
 
