@@ -1181,15 +1181,17 @@ plot3(leftLineSubscripts(:,1), leftLineSubscripts(:,2), leftLineSubscripts(:,3),
 plot3(rightLineSubscripts(:,1), rightLineSubscripts(:,2), rightLineSubscripts(:,3), 'kx')
 
 %% Check that aleurone and endosperm form continous region
+% Not required for either indvidually, but should work for whole
 
-tempExterior = unint8(endospermExterior) + uint8(aleuroneExterior)*2;
+tempExterior = uint8(endospermExterior) + uint8(aleuroneExterior)*2;
 
-tempExterior(aleuroneEdgeIndexList) = 3;
+% Edge will be fully connected by defeault.
+%tempExterior(aleuroneEdgeIndexList) = 3;
 
 % Take largest connected region.
-tempCC = bwconncomp(logical(tempExterior), 18);
+tempCC = bwconncomp(logical(tempExterior), 26);
 
-tempStats = regionprops(tempCC, 'PixelIdxList', 'PixelList');
+tempStats = regionprops(tempCC, 'PixelIdxList');
 
 % Get number of voxels in each region. 
 nRegions = length(tempStats); voxelsPerRegionArray = zeros(nRegions,1);
@@ -1199,25 +1201,55 @@ for iRegion = 1:nRegions
 end
 
 % Largest will generally be much larger than others.
-[~, tempIndex] = max(voxelsPerRegionArray); tempStats(tempIndex) = [];
+[~, tempIndex] = max(voxelsPerRegionArray); 
 
-error('Finish')
-% Remove other regions from volumes and lists.
+tempStats(tempIndex) = []; voxelsPerRegionArray(tempIndex) = [];
+
+% Remove other regions from volumes and collect indices to remove from lists.
+endoToRemove = zeros(sum(voxelsPerRegionArray),1)*NaN;
+
+aleuroneToRemove = zeros(sum(voxelsPerRegionArray),1)*NaN;
+
+counter = 1;
+
 for iRegion = 1:nRegions-1
-    for jIndex = tempStats(iRegion).PixelIdxList
-        value = tempExterior(jIndex);
-        switch value
-            case 1 %endosperm
-                endospermExterior(jIndex) = 0;
-                
-            case 2 %aleurone surface
-                aleuroneExterior = 0;
-                
-            case 3 %aleurone edge
-                aleuroneExterior = 0;
+    
+    for jIndex = 1:length(tempStats(iRegion).PixelIdxList)
+        
+        % Get values.
+        tempIndex = tempStats(iRegion).PixelIdxList(jIndex);
+        
+        value = tempExterior(tempIndex);
+        
+        %Delete from appropriate liss, array and volume
+        if value == 1
+            %endosperm
+            endospermExterior(tempIndex) = 0;
+            
+            endoToRemove(counter) = find(endospermSurfaceIndexList == tempIndex);
+                        
+        elseif value == 2
+            %aleurone surfaces
+            aleuroneExterior(tempIndex) = 0;
+            
+            aleuroneToRemove(counter) = find(aleuroneSurfaceIndexList == tempIndex);
+            
         end
+        
+        counter = counter + 1;
     end
 end
+
+%remove from lists and arrays
+endoToRemove(isnan(endoToRemove)) = []; aleuroneToRemove(isnan(aleuroneToRemove)) = [];
+
+endospermSurfaceIndexList(endoToRemove) = [];
+
+endospermSurfaceSubscriptArray(endoToRemove,:) = [];
+
+aleuroneSurfaceIndexList(aleuroneToRemove) = [];
+
+aleuroneSurfaceSubscriptArray(aleuroneToRemove,:) = [];
 
 clear tempExterior
 
