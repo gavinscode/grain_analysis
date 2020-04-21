@@ -787,7 +787,6 @@ for iSlice = zTopOfLoop:zToInterp
    end
 end
 
-
 %% Cut up from centre line and ends 
 %Extend curve to include front and end of grain.
 
@@ -894,6 +893,10 @@ curveSubscriptArray(:,3) = curveSubscriptArray(:,3) + zBoundsNew(1) - 1;
 
 tempIndexList = sub2ind(volumeSize, curveSubscriptArray(:,1), curveSubscriptArray(:,2), curveSubscriptArray(:,3));
 
+grainCuttVolume = zeros(volumeSize, 'logical');
+
+grainCutVolume(tempIndexList(grainExterior(tempIndexList) == 1)) = 1;
+
 % Code curve into grain exterior as 2 to distinguish it later.
 %grainExterior = uint8(grainExterior);
 grainExterior(tempIndexList(grainExterior(tempIndexList) == 1)) = 0;
@@ -902,7 +905,7 @@ figure; imshow(sum(grainExterior(:,:,1623),3)/2)
 
 clear centreCurveVolume 
 
-%% Get exterior surface of aleurone.
+%% Get surface of aleurone.
 aleuroneExterior = grainExterior & (grainVolumeAligned == ALEURONE_INDEX);
 
 % Get index list
@@ -939,7 +942,7 @@ nIndex = length(aleuroneInteriorIndexList); aleuroneInteriorSubscriptArray = zer
 
 %% Get germ surfaces
 % Take largest region for germ.
-germExterior = grainExterior & (grainVolumeAligned == GERM_INDEX);
+germExterior = (grainExterior | grainCuttVolume) & (grainVolumeAligned == GERM_INDEX);
 
 % Take largest connected region of surface.
 tempCC = bwconncomp(germExterior, 26);
@@ -975,26 +978,26 @@ endospermExterior = grainExterior & (grainVolumeAligned == ENDOSPERM_INDEX);
 % Take tips of aleurone points.
 curveCentre = mean(curveSubscriptArray(:,1));
 
-tempInd = find(aleuroneEdgeSubscriptArray(:,1) < curveCentre);
+tempInd = find(aleuroneSurfaceSubscriptArray(:,1) < curveCentre);
 
-[~, topLeftTipInd] = max(aleuroneEdgeSubscriptArray(tempInd,3));
+[~, topLeftTipInd] = max(aleuroneSurfaceSubscriptArray(tempInd,3));
 
 topLeftTipInd = tempInd(topLeftTipInd);
 
-tempInd = find(aleuroneEdgeSubscriptArray(:,1) > curveCentre);
+tempInd = find(aleuroneSurfaceSubscriptArray(:,1) > curveCentre);
 
-[~, topRightTipInd] = max(aleuroneEdgeSubscriptArray(tempInd,3));
+[~, topRightTipInd] = max(aleuroneSurfaceSubscriptArray(tempInd,3));
 
 topRightTipInd = tempInd(topRightTipInd);
 
 % Find closest points on aleurone surface.
-[~, nearestGermLeft] = min(sqrt((germSurfaceSubscriptArray(:,1) - aleuroneEdgeSubscriptArray(topLeftTipInd,1)).^2 + ...
-    (germSurfaceSubscriptArray(:,2) - aleuroneEdgeSubscriptArray(topLeftTipInd,2)).^2 + ...
-    (germSurfaceSubscriptArray(:,3) - aleuroneEdgeSubscriptArray(topLeftTipInd,3)).^2 )); 
+[~, nearestGermLeft] = min(sqrt((germSurfaceSubscriptArray(:,1) - aleuroneSurfaceSubscriptArray(topLeftTipInd,1)).^2 + ...
+    (germSurfaceSubscriptArray(:,2) - aleuroneSurfaceSubscriptArray(topLeftTipInd,2)).^2 + ...
+    (germSurfaceSubscriptArray(:,3) - aleuroneSurfaceSubscriptArray(topLeftTipInd,3)).^2 )); 
 
-[~, nearestGermRight] = min(sqrt((germSurfaceSubscriptArray(:,1) - aleuroneEdgeSubscriptArray(topRightTipInd,1)).^2 + ...
-    (germSurfaceSubscriptArray(:,2) - aleuroneEdgeSubscriptArray(topRightTipInd,2)).^2 + ...
-    (germSurfaceSubscriptArray(:,3) - aleuroneEdgeSubscriptArray(topRightTipInd,3)).^2 ));
+[~, nearestGermRight] = min(sqrt((germSurfaceSubscriptArray(:,1) - aleuroneSurfaceSubscriptArray(topRightTipInd,1)).^2 + ...
+    (germSurfaceSubscriptArray(:,2) - aleuroneSurfaceSubscriptArray(topRightTipInd,2)).^2 + ...
+    (germSurfaceSubscriptArray(:,3) - aleuroneSurfaceSubscriptArray(topRightTipInd,3)).^2 ));
 
 % Draw line between both sets of points, and remove from endosperm exterior
 
@@ -1003,8 +1006,8 @@ dilateRadius = 2;
 
 % Left side.
 dMapFromGerm = bwdistgeodesic(grainExterior, sub2ind(volumeSize, ...
-    aleuroneEdgeSubscriptArray(topLeftTipInd,1), aleuroneEdgeSubscriptArray(topLeftTipInd,2),...
-    aleuroneEdgeSubscriptArray(topLeftTipInd,3)), 'quasi-euclidean');
+    aleuroneSurfaceSubscriptArray(topLeftTipInd,1), aleuroneSurfaceSubscriptArray(topLeftTipInd,2),...
+    aleuroneSurfaceSubscriptArray(topLeftTipInd,3)), 'quasi-euclidean');
 
 dMapFromAl = bwdistgeodesic(grainExterior, sub2ind(volumeSize, ...
     germSurfaceSubscriptArray(nearestGermLeft,1), germSurfaceSubscriptArray(nearestGermLeft,2),...
@@ -1029,8 +1032,8 @@ nIndex = length(leftLineInds); leftLineSubscripts = zeros(nIndex, 3);
 
 % Right side.
 dMapFromGerm = bwdistgeodesic(grainExterior, sub2ind(volumeSize, ...
-    aleuroneEdgeSubscriptArray(topRightTipInd,1), aleuroneEdgeSubscriptArray(topRightTipInd,2),...
-    aleuroneEdgeSubscriptArray(topRightTipInd,3)), 'quasi-euclidean');
+    aleuroneSurfaceSubscriptArray(topRightTipInd,1), aleuroneSurfaceSubscriptArray(topRightTipInd,2),...
+    aleuroneSurfaceSubscriptArray(topRightTipInd,3)), 'quasi-euclidean');
 
 dMapFromAl = bwdistgeodesic(grainExterior, sub2ind(volumeSize, ...
     germSurfaceSubscriptArray(nearestGermRight,1), germSurfaceSubscriptArray(nearestGermRight,2),...
@@ -1185,7 +1188,7 @@ aleuroneSurfaceIndexList(aleuroneToRemove) = [];
 aleuroneSurfaceSubscriptArray(aleuroneToRemove,:) = [];
 
 %% Calculate edge of combined surface.
-combinedEdge = imdilate(grainExterior & ~combinedExterior, STREL_18_CONNECTED);
+combinedEdge = imdilate((grainExterior | grainCuttVolume) & ~combinedExterior, STREL_18_CONNECTED);
 
 combinedEdge = combinedEdge & combinedExterior;
 
@@ -1713,7 +1716,7 @@ for iPoint = 1:nPoints
     end
 end
 
-save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i_w_endo_dist_on_full', 'distanceMatrix', ...
+save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i_w_endo_dist_on_full_new', 'distanceMatrix', ...
         edgeDistance, surfaceDistance, sparsePointsDistance, normalRadius), ...
     'edgeDistance', 'surfaceDistance', 'sparsePointsDistance', 'normalRadius',...    
     'distanceMatrix', 'subscriptsToInterpolate', 'interpolatedIdentity',... 
@@ -1800,16 +1803,36 @@ if any(isinf(distanceMatrix(:))) || any(isnan(distanceMatrix(:)))
 end
 
 % Enforce symmetry (should be ok...). Should also be squared
-distanceMatrixTemp = ((distanceMatrix.^1 + (distanceMatrix.^1)')/2);
+distanceMatrixTemp = ((distanceMatrix.^2 + (distanceMatrix.^2)')/2);
 
 % Apparently CMD is equivlenet to PCA; but seems to give different results
 [coeff, pointsUnwrapped] = pca(distanceMatrixTemp, 'Algorithm','eig',...
     'Centered','on','NumComponents',2);
-toc
 
 surfaceIndexList = 1:length(surfacePointsChoosen);
 
 edgeIndexList = (length(surfacePointsChoosen)+1):(length(surfacePointsChoosen)+size(edgePointsChoosen,1));
+
+% Do embedding by placing extra points into space
+sparsePointsUnwrapped = zeros(length(sparsePointsChoosen),2, 'single');
+
+% Take column wise mean on orginal distance map 
+coloumnMeansDistanceMatrix = mean(distanceMatrixTemp,2);
+
+embeddingPseudoinverse = pinv(pointsUnwrapped(:,1:2));
+
+for iPoint = 1:length(sparsePointsChoosen)
+% From: https://stats.stackexchange.com/questions/368331/project-new-point-into-mds-space
+%     sparsePointsUnwrapped(iPoint,:) = -0.5*pointsUnwrapped(:,1:2)\(distanceMatrixSparse(:,iPoint).^2 -...
+%         coloumnMeansDistanceMatrix);
+    
+%     sparsePointsUnwrapped(iPoint,:) = -0.5*embeddingPseudoinverse'*(distanceMatrixSparse(:,iPoint).^2 -...
+%         coloumnMeansDistanceMatrix);
+
+    %This seems most reliable
+    sparsePointsUnwrapped(iPoint,:) = coeff'*(distanceMatrixSparse(:,iPoint).^2 -...
+         coloumnMeansDistanceMatrix);
+end
 
 % Center
 % pointsUnwrapped(:,2) = pointsUnwrapped(:,2) - mean(pointsUnwrapped(:,2));
@@ -1828,7 +1851,7 @@ edgeIndexList = (length(surfacePointsChoosen)+1):(length(surfacePointsChoosen)+s
 % [~, closestBelow] = min( abs( pointsUnwrapped(edgeIndexList(indexListBelow), 1)));
 % 
 % indexBelow = (indexListBelow(closestBelow));
-% 
+%   
 % % Scale based on relative distances.
 % unwrappedDistance = sqrt((pointsUnwrapped(edgeIndexList(indexAbove),1) - pointsUnwrapped(edgeIndexList(indexBelow),1)).^2 +...
 %     (pointsUnwrapped(edgeIndexList(indexAbove),2) - pointsUnwrapped(edgeIndexList(indexBelow),2)).^2);
@@ -1837,7 +1860,7 @@ edgeIndexList = (length(surfacePointsChoosen)+1):(length(surfacePointsChoosen)+s
 % 
 % pointsUnwrapped = pointsUnwrapped/unwrappedDistance*distanceOnSurf;
 % 
-% % Match angle
+% Match angle
 % unwrappedAngle = atan2(pointsUnwrapped(edgeIndexList(indexAbove),2) - pointsUnwrapped(edgeIndexList(indexBelow),2), ...
 %     pointsUnwrapped(edgeIndexList(indexAbove),1) - pointsUnwrapped(edgeIndexList(indexBelow),1));
 % 
@@ -1847,17 +1870,27 @@ edgeIndexList = (length(surfacePointsChoosen)+1):(length(surfacePointsChoosen)+s
 % pointsUnwrapped = [pointsUnwrapped ones(size(pointsUnwrapped,1),1) ] * ...
 %     make_transformation_matrix([0 0], -unwrappedAngle-pi/2+pi);
 
-figure; hold on; axis equal
+warning('Quick scale of sparse points - add above when full border used')
+
+sparseHegiht = max(sparsePointsUnwrapped(:,2)) - min(sparsePointsUnwrapped(:,2));
+
+unwrappedHeight = max(pointsUnwrapped(:,2)) - min(pointsUnwrapped(:,2));
+
+sparsePointsUnwrapped = sparsePointsUnwrapped/sparseHegiht*unwrappedHeight;
+
+figure; 
+%subplot(1,2,1);
+hold on; axis equal
 
 plot(pointsUnwrapped(surfaceIndexList,1), pointsUnwrapped(surfaceIndexList,2), 'kx');
 
-plot(pointsUnwrapped(edgeIndexList,1), pointsUnwrapped(edgeIndexList,2), 'kx');
+plot(pointsUnwrapped(edgeIndexList,1), pointsUnwrapped(edgeIndexList,2), 'rx');
 
-plot(pointsUnwrapped(edgeIndexList(indexAbove),1), pointsUnwrapped(edgeIndexList(indexAbove),2), 'gd');
+plot(sparsePointsUnwrapped(:,1), sparsePointsUnwrapped(:,2), 'r.');
 
-plot(pointsUnwrapped(edgeIndexList(indexBelow),1), pointsUnwrapped(edgeIndexList(indexBelow),2), 'md');
-
-error('check unwrapping is ok - add scaling - may need to return to previous version')
+% plot(pointsUnwrapped(edgeIndexList(indexAbove),1), pointsUnwrapped(edgeIndexList(indexAbove),2), 'gd');
+% 
+% plot(pointsUnwrapped(edgeIndexList(indexBelow),1), pointsUnwrapped(edgeIndexList(indexBelow),2), 'md');
 
 %% Test plot results
 figure; 
