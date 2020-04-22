@@ -1,4 +1,4 @@
-function [xCords, yCords, zCords] = amanatideswooalgorithm_efficient(origin, direction, grid3D, verbose, limitC)
+function [xCords, yCords, zCords, distanceValues] = amanatideswooalgorithm_efficient(origin, direction, grid3D, verbose, limitC, limitL, calculateDistances)
 % A fast and simple voxel traversal algorithm through a 3D space partition (grid)
 % proposed by J. Amanatides and A. Woo (1987).
 %
@@ -10,17 +10,28 @@ function [xCords, yCords, zCords] = amanatideswooalgorithm_efficient(origin, dir
 %    Jes??s P. Mena-Chalco.
 
 %%% Modified by Gavin such arrays are preallocated for the output. Saves time
-
-%%% Would be good to output the percentage each ray is in a voxel, for
-%%% intensity calculations.
+%%% Also added limits in terms of number of voxels to traverse or cordinate
+%%% (April 2020) Added distance calculation for path through voxels
 
 %Gavin: they way cords are extracted assumes that input grid starts at (1,1,1) and goes from there.
 
     %Gavin: Added to deal with extra arg
-    if nargin < 5
+    if isempty(limitC)
         limitC = [NaN, NaN, NaN];
     end
+    
+    if isempty(verbose)
+        verbose = 0;
+    end
+    
+    if isempty(limitL)
+        limitL = Inf;
+    end
 
+    if isempty(calculateDistances)
+        calculateDistances = 0;
+    end
+    
     if (verbose)
         figure;
         hold on;
@@ -66,6 +77,8 @@ function [xCords, yCords, zCords] = amanatideswooalgorithm_efficient(origin, dir
         x = floor( ((start(1)-grid3D.minBound(1))/boxSize(1))*grid3D.nx )+1;
         y = floor( ((start(2)-grid3D.minBound(2))/boxSize(2))*grid3D.ny )+1;
         z = floor( ((start(3)-grid3D.minBound(3))/boxSize(3))*grid3D.nz )+1; 
+        
+        start = [x, y, z];
         
         %correct for occasional round to zero errors
         if x == 0; x =1; end
@@ -134,21 +147,51 @@ function [xCords, yCords, zCords] = amanatideswooalgorithm_efficient(origin, dir
      
         % Gavin: should always be bigger than longest possible line. 
         % It will run really slowly if the length is exceeded...
-        maxSize = round(ceil((grid3D.maxBound(1)-grid3D.minBound(1))^2 + (grid3D.maxBound(1)-grid3D.minBound(3))^2 + (grid3D.maxBound(3)-grid3D.minBound(3))^2)+1);
+        maxSize = max([grid3D.nx grid3D.ny grid3D.nz])*2;
         CordsT = zeros(maxSize,3);
         iter = 1;
+        
+        lineLength = 0;
             
+        if calculateDistances
+           %%% Due to volume resclaing this may not work very well if tmin was not zero 
+            
+           distanceValues = zeros(maxSize,1);
+           
+           %Calculate intial intersects and distance between them
+           %Start from middle of voxel and step back to get entrance into voxel
+           t1 = [(x-1)/grid3D.nx, (y-1)/grid3D.ny, (z-1)/grid3D.nz ]';
+           t2 = [  (x)/grid3D.nx,  (y)/grid3D.ny,    (z)/grid3D.nz ]';        
+
+           vmin = (grid3D.minBound + t1.*boxSize)';
+           vmax = (grid3D.minBound + t2.*boxSize)';
+           
+           preStart = [x, y, z]-direction*5;
+           
+           [flag, tmin] = rayBoxIntersection(preStart, direction, vmin, vmax);
+           
+           if flag == 0
+             error('Box missed');
+           end
+               
+           nextIntersect = preStart + tmin*direction;
+
+           %Actually, it should be start cordinate.
+           %nextIntersect = [x, y, z];
+        end
+        
         %Gavin: add a limit that can terminate when a certain point is reached
-        while ( (x<=grid3D.nx)&&(x>=1) && (y<=grid3D.ny)&&(y>=1) && (z<=grid3D.nz)&&(z>=1) && (x ~= limitC(1) || y ~= limitC(2) || z ~= limitC(3)))
+        while ( (x<=grid3D.nx)&&(x>=1) && (y<=grid3D.ny)&&(y>=1) && (z<=grid3D.nz)&&(z>=1) && ...
+                (x ~= limitC(1) || y ~= limitC(2) || z ~= limitC(3))) && ...
+                (lineLength < limitL)
+            
             if iter > maxSize
-                warning('amanatidesWooAlgorithm_preAlloc will run slowly now');
+                error('amanatidesWooAlgorithm_preAlloc will run slowly now');
             end
             
             CordsT(iter,1) = x;
             CordsT(iter,2) = y;
             CordsT(iter,3) = z;
-
-            iter = iter+1;
             
             if (verbose)
                 fprintf('\nIntersection: voxel = [%d %d %d]', [x y z]);
@@ -165,7 +208,7 @@ function [xCords, yCords, zCords] = amanatideswooalgorithm_efficient(origin, dir
                 h = patch('Vertices', smallBoxVertices, 'Faces', smallBoxFaces, 'FaceColor', 'blue', 'EdgeColor', 'white');
                 set(h,'FaceAlpha',0.2);
             end;
-
+            
             if (tMaxX < tMaxY)
                 if (tMaxX < tMaxZ)
                     x = x + stepX;
@@ -182,9 +225,41 @@ function [xCords, yCords, zCords] = amanatideswooalgorithm_efficient(origin, dir
                     z = z + stepZ;
                     tMaxZ = tMaxZ + tDeltaZ;
                 end;
-            end;
+            end
+            
+            if calculateDistances
+                % Copy last entrance to exit.
+                oldIntersect = nextIntersect;
+
+                %Get what border of new box will be.
+                t1 = [(x-1)/grid3D.nx, (y-1)/grid3D.ny, (z-1)/grid3D.nz ]';
+                t2 = [  (x)/grid3D.nx,  (y)/grid3D.ny,    (z)/grid3D.nz ]';        
+
+                vmin = (grid3D.minBound + t1.*boxSize)';
+                vmax = (grid3D.minBound + t2.*boxSize)';
+                
+                % Calculate entrance to next voxel
+                [flag, tmin] = rayBoxIntersection(oldIntersect, direction,...
+                    vmin, vmax);
+
+                nextIntersect = oldIntersect + tmin*direction;
+
+                if flag == 0
+                   error('Box missed');
+                end
+                
+                distanceValues(iter) = tmin;
+            end
+            
+            iter = iter+1;
+            
+            %Take curret line length for test
+            lineLength = sqrt((start(1)-x)^2 + (start(2)-y)^2 + (start(3)-z)^2);
         end;  
+        
         xCords = CordsT(1:iter-1,1);
         yCords = CordsT(1:iter-1,2);
         zCords = CordsT(1:iter-1,3);
+        
+        distanceValues = distanceValues(1:iter-1);
 end

@@ -36,6 +36,8 @@ VOXEL_SIZE = 4;
 % Flags
 calculateArea = 0; % Very time consuming.
 testPlotNormals = 0;
+
+maxAleuroneThickness = 50; %In voxels - previous limit at 20
 %% Get voxels on exterior of orignal grain by overlap to exterior.
 % Get pixels in grain.
 grainIndexList = find(grainVolume);
@@ -893,7 +895,7 @@ curveSubscriptArray(:,3) = curveSubscriptArray(:,3) + zBoundsNew(1) - 1;
 
 tempIndexList = sub2ind(volumeSize, curveSubscriptArray(:,1), curveSubscriptArray(:,2), curveSubscriptArray(:,3));
 
-grainCuttVolume = zeros(volumeSize, 'logical');
+grainCutVolume = zeros(volumeSize, 'logical');
 
 grainCutVolume(tempIndexList(grainExterior(tempIndexList) == 1)) = 1;
 
@@ -942,7 +944,7 @@ nIndex = length(aleuroneInteriorIndexList); aleuroneInteriorSubscriptArray = zer
 
 %% Get germ surfaces
 % Take largest region for germ.
-germExterior = (grainExterior | grainCuttVolume) & (grainVolumeAligned == GERM_INDEX);
+germExterior = (grainExterior | grainCutVolume) & (grainVolumeAligned == GERM_INDEX);
 
 % Take largest connected region of surface.
 tempCC = bwconncomp(germExterior, 26);
@@ -1188,7 +1190,7 @@ aleuroneSurfaceIndexList(aleuroneToRemove) = [];
 aleuroneSurfaceSubscriptArray(aleuroneToRemove,:) = [];
 
 %% Calculate edge of combined surface.
-combinedEdge = imdilate((grainExterior | grainCuttVolume) & ~combinedExterior, STREL_18_CONNECTED);
+combinedEdge = imdilate((grainExterior | grainCutVolume) & ~combinedExterior, STREL_18_CONNECTED);
 
 combinedEdge = combinedEdge & combinedExterior;
 
@@ -1219,9 +1221,11 @@ nIndex = length(combinedEdgeIndexList); combinedEdgeSubscriptArray = zeros(nInde
 [combinedEdgeSubscriptArray(:,1), combinedEdgeSubscriptArray(:,2), combinedEdgeSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, combinedEdgeIndexList);
 
- 
+ figure; imshow(combinedEdge(:,:,20))
+ figure; imshow(combinedExterior(:,:,20))
+ figure; imshow(grainCutVolume(:,:,20))
 
-clear combinedExterior, clear combinedEdge
+%clear combinedExterior, clear combinedEdge
 
 %% Calculate surface area of aleurone exterior and interior
 %https://se.mathworks.com/matlabcentral/answers/93023-is-there-a-matlab-function-that-can-compute-the-area-of-my-patch
@@ -1436,7 +1440,7 @@ greyVolumeAligned = uint8( affine_transform_full(single(greyVolume), M1*M2*M3*M4
 % Affine transform with linear interp. does not seem to have small holes problem.
 
 clear greyVolume
-%% Calulate distance between points
+%% Calulate distance between map points
 
 %%% Test how is geodesic connectivity calculated - its 26
 %temp = zeros(3,3,3,'logical');
@@ -1626,42 +1630,57 @@ parfor iPoint = 1:nPoints %
             end
 
             %Draw line in voxel space.
-            [tempX, tempY, tempZ] = amanatideswooalgorithm_efficient(currentSubscript, tempNormal, grid3D, 0);
+            [tempX, tempY, tempZ, voxelDistances] = amanatideswooalgorithm_efficient(currentSubscript, tempNormal, grid3D, 0,...
+                [], maxAleuroneThickness, 1);
 
             indexList = sub2ind(volumeSize, tempX, tempY, tempZ);
 
             % Find intersects
             interiorIntersects = find(aleuroneInterior(indexList));
 
-            interiorIntersects(interiorIntersects > 20) = [];
+            %Remove all after break in interior intersects (will hit other side)
+            intersectSteps = find(diff(interiorIntersects) > 1);
+            
+            if ~isempty(intersectSteps)
+                interiorIntersects(intersectSteps(1)+1:end) = [];
+            end
+            
+            % Now limited in amantides function and continuity test
+            %interiorIntersects(interiorIntersects > 20) = [];
 
             % Test intersects are present/in correct  order.
             if ~isempty(interiorIntersects)
-                % Check all points before are aleurone
-                if all( grainVolumeAligned( indexList(1:(interiorIntersects(1)-1))) == ALEURONE_INDEX) & ...
-                        ~any( grainVolumeAligned(indexList(1:(interiorIntersects(1)-1))) ~= ALEURONE_INDEX)
+                % Check all points are aleurone
+                
+                if all( grainVolumeAligned( indexList(1:(interiorIntersects(end)))) == ALEURONE_INDEX) & ...
+                        ~any( grainVolumeAligned(indexList(1:(interiorIntersects(end)))) ~= ALEURONE_INDEX)
 
                         % Points is ok, record and thickness + intensity.
-                        tempIntersect = [tempX(interiorIntersects(1)), ...
-                            tempY(interiorIntersects(1)), tempZ(interiorIntersects(1))]; 
+                        tempIntersect = [tempX(interiorIntersects(end)), ...
+                            tempY(interiorIntersects(end)), tempZ(interiorIntersects(end))]; 
 
+                        tempThickness = sum(voxelDistances(1:interiorIntersects(end)));
+%                             sqrt((currentSubscript(1)-tempIntersect(1))^2 + ...
+%                                 (currentSubscript(2)-tempIntersect(2))^2 + ...
+%                                 (currentSubscript(3)-tempIntersect(3))^2)
+                        
+                        tempIntensity = wmean( double(greyVolumeAligned( indexList(1:interiorIntersects(end)))),...
+                            voxelDistances(1:interiorIntersects(end)));
+%                              mean( double(greyVolumeAligned( indexList(1:interiorIntersects(end)))))
+                        
                         if jSubscript == 1            
                             internalIntersectByPoint(iPoint,:) = tempIntersect;
 
-                            thicknessByPoint(iPoint) = sqrt((currentSubscript(1) - tempIntersect(1))^2 + ...
-                                (currentSubscript(2) - tempIntersect(2))^2 + ...
-                                (currentSubscript(3) - tempIntersect(3))^2); 
+                            thicknessByPoint(iPoint) = tempThickness;
 
-                            averageIntensityByPoint(iPoint) = mean( greyVolumeAligned( indexList(1:interiorIntersects(1))));
+                            averageIntensityByPoint(iPoint) = tempIntensity;
 
                         else
                             tempInternalIntersectArray(jSubscript-1,:) = tempIntersect;
 
-                            tempThicknessArray(jSubscript-1) = sqrt((currentSubscript(1) - tempIntersect(1))^2 + ...
-                                (currentSubscript(2) - tempIntersect(2))^2 + ...
-                                (currentSubscript(3) - tempIntersect(3))^2); 
+                            tempThicknessArray(jSubscript-1) = tempThickness;
 
-                            tempAverageIntensityArray(jSubscript-1) = mean( greyVolumeAligned( indexList(1:interiorIntersects(1))));
+                            tempAverageIntensityArray(jSubscript-1) = tempIntensity;
                             
                         end
                         
@@ -1716,7 +1735,7 @@ for iPoint = 1:nPoints
     end
 end
 
-save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i_w_endo_dist_on_full_new', 'distanceMatrix', ...
+save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i_w_endo:_dist_on_full:_voxel_fractions', 'distanceMatrix', ...
         edgeDistance, surfaceDistance, sparsePointsDistance, normalRadius), ...
     'edgeDistance', 'surfaceDistance', 'sparsePointsDistance', 'normalRadius',...    
     'distanceMatrix', 'subscriptsToInterpolate', 'interpolatedIdentity',... 
@@ -1727,73 +1746,35 @@ save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i_w_e
 
 %load('/Users/gavintaylor/Documents/Matlab/Temp_data/distanceMatrix_10_50_3_100.mat')
 
-% Save to prevent overwrite.
-% distanceMatrixSaver = distanceMatrix;
-% pPoint = iPoint;
+%% Calaculate integrals under surface.
+blockThickness = 10;
 
-% Debug plot - show colour maps. Tests well on 7
-% figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
-% cols = round(dMap(aleuroneSurfaceIndexList)/max(distanceMatrix(:))*99) + 1;
-% cols(isinf(cols)) = 110;
-% fscatter3(aleuroneSurfaceSubscriptArray(:,1),aleuroneSurfaceSubscriptArray(:,2),...
-%     aleuroneSurfaceSubscriptArray(:,3),cols,jet(100));
-% % plot3(subscriptsToInterpolate(pPoint,1), subscriptsToInterpolate(pPoint,2), ...
-% %     subscriptsToInterpolate(pPoint,3),'mo', 'markersize',20);
-% % plot3(378,175,1651,'mo', 'markersize',20);
-% plot3(subscriptsToInterpolate(iPoint,1), subscriptsToInterpolate(iPoint,2), ...
-%     subscriptsToInterpolate(iPoint,3),'mo', 'markersize',20);
+depthToCalculate = 200;
 
-% Debug plot - show series of slices 
-% dMap(isnan(dMap)) = 0;
-% for iTemp = 1615:1625
-%     figure; imshow(sum(dMap(:,:,iTemp:iTemp+1),3))
-% end
-% 
-% %Debug plot - show thick overlay figure
-% figure; imshow(sum(dMap(:,:,1623:1624),3))
-% 
-% % Debug plot - show local series of points
-% inds = find(aleuroneSurfaceSubscriptArray(:,3) > 1615 & aleuroneSurfaceSubscriptArray(:,3) < 1625);
-% figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
-% plot3(aleuroneSurfaceSubscriptArray(inds,1),aleuroneSurfaceSubscriptArray(inds,2),...
-%      aleuroneSurfaceSubscriptArray(inds,3),'b.');
-%  
-% % %Debug plot - show series of coloured points
-% inds = find(aleuroneSurfaceSubscriptArray(:,3) > 1600 & aleuroneSurfaceSubscriptArray(:,3) < 1700 & ...
-%     aleuroneSurfaceSubscriptArray(:,1) < 380);
-% inds = find(aleuroneSurfaceSubscriptArray(:,3) < 200);
-% cols = round(dMap(aleuroneSurfaceIndexList(inds))/max(dMap(aleuroneSurfaceIndexList(inds)))*99) + 1;
-% cols(isinf(cols)) = 110; cols(cols > 100) = 100;
-% figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
-% fscatter3(aleuroneSurfaceSubscriptArray(inds,1),aleuroneSurfaceSubscriptArray(inds,2),...
-%      aleuroneSurfaceSubscriptArray(inds,3),cols,jet(100));
+numberOfBlocks = depthToCalculate/blockThickness;
 
-%Just test lines between points, can do on any afterwards
-% figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
-% plot3(aleuroneSurfaceSubscriptArray(surfacePointsChoosen,1), aleuroneSurfaceSubscriptArray(surfacePointsChoosen,2), ...
-%     aleuroneSurfaceSubscriptArray(surfacePointsChoosen,3), 'b.')
-% plot3(combinedEdgeSubscriptArray(edgePointsChoosen,1), combinedEdgeSubscriptArray(edgePointsChoosen,2), ...
-%     combinedEdgeSubscriptArray(edgePointsChoosen,3), 'r.')
-% plot3(combinedEdgeSubscriptArray(:,1), combinedEdgeSubscriptArray(:,2), ...
-%     combinedEdgeSubscriptArray(:,3), 'g.')
-% 
-% colMap = jet(100);
-% maxDist = max(distanceMatrix(:));
-% 
-% pointToTest = 23; % prob on 20 to 7
-% 
-% for iPoint = 1:nPoints
-%     col = colMap(round(distanceMatrix(pointToTest,iPoint)/maxDist*99)+1,:);
-%     line([subscriptsToInterpolate(pointToTest,1) subscriptsToInterpolate(iPoint,1)], ...
-%         [subscriptsToInterpolate(pointToTest,2) subscriptsToInterpolate(iPoint,2)], ...
-%         [subscriptsToInterpolate(pointToTest,3) subscriptsToInterpolate(iPoint,3)], 'color', col);
-% end
+pointIntensityProfile = zeros(nPoints, numberOfBlocks);
 
-% plot3(subscriptsToInterpolate(pPoint,1), subscriptsToInterpolate(pPoint,2), ...
-%     subscriptsToInterpolate(pPoint,3),'mo', 'markersize',20);
+sparseIntensityProfile = zeros(nSparsePoints, numberOfBlocks);
 
-%clear dMap, 
-%clear aleuroneExterior, clear greyImageAligned, clear aleuroneInterior
+%Step through main points
+% % for iPoint = 1:nPoints
+% %     
+% %     tempNormal = normalByPoint(iPoint,:);
+% %     
+% %     %Check if aleurone of endosperm
+% %     if interpolatedIdentity(iPoint)
+% %         %Aleurone, extend line in from interior surface
+% %         
+% %         startPoint = internalIntersectByPoint(iPoint,:);
+% %         
+% %     else
+% %        %Endosperm, extend in from outer surface
+% %        startPoint = subscriptsToInterpolate(iPoint,:);
+% %     end
+% %     
+% %     %Draw line, take distance to and from start.
+% % end
 
 %% Calculate unwrapping 
 
