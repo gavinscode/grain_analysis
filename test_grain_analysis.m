@@ -1087,9 +1087,13 @@ end
 % Sort by minimum Z value in 4 largest regions
 [~, sortMinZ] = sort(minZPerRegion(sortLength(1:4)) ,'ascend');
 
-% Remove 2 with lowest Z value
+% Remove 2 with lowest Z value but add to seperate volume
+endospermCreaseExterior = zeros(volumeSize, 'logical');
+
 for iRegion = 1:2
     endospermExterior(tempStats(sortLength(sortMinZ(iRegion))).PixelIdxList) = 0;
+    
+    endospermCreaseExterior(tempStats(sortLength(sortMinZ(iRegion))).PixelIdxList) = 1;
 end
 
 %%% Note that some fluff along crease remains.
@@ -1101,6 +1105,9 @@ nIndex = length(endospermSurfaceIndexList); endospermSurfaceSubscriptArray = zer
 
 [endospermSurfaceSubscriptArray(:,1), endospermSurfaceSubscriptArray(:,2), endospermSurfaceSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, endospermSurfaceIndexList);
+
+% Get crease border to aleurone (not any endosperm or germ alonge this region)
+endospermCreaseExteriorBorder = imdilate(endospermCreaseExterior, STREL_18_CONNECTED) & aleuroneExterior;
 
 % plot
 figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
@@ -1116,6 +1123,7 @@ plot3(leftLineSubscripts(:,1), leftLineSubscripts(:,2), leftLineSubscripts(:,3),
 
 plot3(rightLineSubscripts(:,1), rightLineSubscripts(:,2), rightLineSubscripts(:,3), 'kx')
 
+clear endospermCreaseExterior
 %% Check that aleurone and endosperm form continous region
 % Not required for either indvidually, but should work for whole
 
@@ -1221,11 +1229,13 @@ nIndex = length(combinedEdgeIndexList); combinedEdgeSubscriptArray = zeros(nInde
 [combinedEdgeSubscriptArray(:,1), combinedEdgeSubscriptArray(:,2), combinedEdgeSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, combinedEdgeIndexList);
 
+creaseAleuroneInds = find(endospermCreaseExteriorBorder(combinedEdgeIndexList));
+
  figure; imshow(combinedEdge(:,:,20))
  figure; imshow(combinedExterior(:,:,20))
  figure; imshow(grainCutVolume(:,:,20))
 
-%clear combinedExterior, clear combinedEdge
+clear combinedExterior, clear combinedEdge, 
 
 %% Calculate surface area of aleurone exterior and interior
 %https://se.mathworks.com/matlabcentral/answers/93023-is-there-a-matlab-function-that-can-compute-the-area-of-my-patch
@@ -1273,9 +1283,11 @@ end
 %Create combined surface of endosperm and aleurone
 combinedSurfaceSubscripts = [aleuroneSurfaceSubscriptArray' endospermSurfaceSubscriptArray']';
 
-combinedIdentity = zeros(size(combinedSurfaceSubscripts,1),1);
+combinedIdentity = zeros(size(combinedSurfaceSubscripts,1), 1);
 
 combinedIdentity(1:size(aleuroneSurfaceSubscriptArray,1)) = 1;
+
+edgeIdentity = aleuroneExterior(combinedEdgeIndexList);
 
 %To control choosing points
 edgePointsToChoose = 1:length(combinedEdgeIndexList);
@@ -1455,7 +1467,7 @@ subscriptsToInterpolate = [combinedSurfaceSubscripts(surfacePointsChoosen,:)'...
 indsToInterpolate = sub2ind(volumeSize, subscriptsToInterpolate(:,1), subscriptsToInterpolate(:,2),...
     subscriptsToInterpolate(:,3));
 
-interpolatedIdentity = [combinedIdentity(surfacePointsChoosen)' ones(1,length(edgePointsChoosen))]';
+interpolatedIdentity = [combinedIdentity(surfacePointsChoosen)' edgeIdentity(edgePointsChoosen)']';
 
 indsForSparse = sub2ind(volumeSize, combinedSurfaceSubscripts(sparsePointsChoosen,1), ...
     combinedSurfaceSubscripts(sparsePointsChoosen,2), combinedSurfaceSubscripts(sparsePointsChoosen,3));
@@ -1735,7 +1747,7 @@ for iPoint = 1:nPoints
     end
 end
 
-save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i_w_endo:_dist_on_full:_voxel_fractions', 'distanceMatrix', ...
+save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i_wEndo_distOnFull_voxelFractions', 'distanceMatrix', ...
         edgeDistance, surfaceDistance, sparsePointsDistance, normalRadius), ...
     'edgeDistance', 'surfaceDistance', 'sparsePointsDistance', 'normalRadius',...    
     'distanceMatrix', 'subscriptsToInterpolate', 'interpolatedIdentity',... 
@@ -1794,13 +1806,37 @@ surfaceIndexList = 1:length(surfacePointsChoosen);
 
 edgeIndexList = (length(surfacePointsChoosen)+1):(length(surfacePointsChoosen)+size(edgePointsChoosen,1));
 
+%Get full edge aleurone list
+aleuroneEdgeIndexList = edgeIndexList( find( interpolatedIdentity(edgeIndexList)));
+
+endospermEdgeIndexList = edgeIndexList( find( ~interpolatedIdentity(edgeIndexList)));
+
+% Split into crease and other aleurone
+%%% Should do this earlier and clear endospermCreaseExteriorBorder
+aleuroneCreaseEdgeIndexList = aleuroneEdgeIndexList( find( ...
+    endospermCreaseExteriorBorder(indsToInterpolate(aleuroneEdgeIndexList))));
+
+aleuroneOtherEdgeIndexList = aleuroneEdgeIndexList(find( ...
+    ~endospermCreaseExteriorBorder(indsToInterpolate(aleuroneEdgeIndexList))));
+
+% Test plot.
+% figure; axis equal; hold on
+% plot3(subscriptsToInterpolate(endospermEdgeIndexList,1), subscriptsToInterpolate(endospermEdgeIndexList,2), ...
+%     subscriptsToInterpolate(endospermEdgeIndexList,3), 'gx');
+% 
+% plot3(subscriptsToInterpolate(aleuroneOtherEdgeIndexList,1), subscriptsToInterpolate(aleuroneOtherEdgeIndexList,2), ...
+%     subscriptsToInterpolate(aleuroneOtherEdgeIndexList,3), 'yx');
+% 
+% plot3(subscriptsToInterpolate(aleuroneCreaseEdgeIndexList,1), subscriptsToInterpolate(aleuroneCreaseEdgeIndexList,2), ...
+%     subscriptsToInterpolate(aleuroneCreaseEdgeIndexList,3), 'kx');
+
 % Do embedding by placing extra points into space
 sparsePointsUnwrapped = zeros(length(sparsePointsChoosen),2, 'single');
 
 % Take column wise mean on orginal distance map 
 coloumnMeansDistanceMatrix = mean(distanceMatrixTemp,2);
 
-embeddingPseudoinverse = pinv(pointsUnwrapped(:,1:2));
+%embeddingPseudoinverse = pinv(pointsUnwrapped(:,1:2));
 
 for iPoint = 1:length(sparsePointsChoosen)
 % From: https://stats.stackexchange.com/questions/368331/project-new-point-into-mds-space
@@ -1815,63 +1851,103 @@ for iPoint = 1:length(sparsePointsChoosen)
          coloumnMeansDistanceMatrix);
 end
 
-% Center
-% pointsUnwrapped(:,2) = pointsUnwrapped(:,2) - mean(pointsUnwrapped(:,2));
+% Adjust scale of sparse to fit full (for some reason coeffs are small)
+% sparseHegiht = max(sparsePointsUnwrapped(:,2)) - min(sparsePointsUnwrapped(:,2));
 % 
-% pointsUnwrapped(:,1) = pointsUnwrapped(:,1)-mean(pointsUnwrapped(:,1));
+% unwrappedHeight = max(pointsUnwrapped(:,2)) - min(pointsUnwrapped(:,2));
 % 
-% % Apply scalling, get points closest to zero X above and below Z zero.
-% indexListAbove = find( pointsUnwrapped(edgeIndexList, 2) > 0);
-% 
-% [~, closestAbove] = min( abs( pointsUnwrapped(edgeIndexList(indexListAbove), 1)));
-% 
-% indexAbove = (indexListAbove(closestAbove));
-% 
-% indexListBelow = find( pointsUnwrapped(edgeIndexList, 2) < 0);
-% 
-% [~, closestBelow] = min( abs( pointsUnwrapped(edgeIndexList(indexListBelow), 1)));
-% 
-% indexBelow = (indexListBelow(closestBelow));
-%   
-% % Scale based on relative distances.
-% unwrappedDistance = sqrt((pointsUnwrapped(edgeIndexList(indexAbove),1) - pointsUnwrapped(edgeIndexList(indexBelow),1)).^2 +...
-%     (pointsUnwrapped(edgeIndexList(indexAbove),2) - pointsUnwrapped(edgeIndexList(indexBelow),2)).^2);
-% 
-% distanceOnSurf = distanceMatrix(edgeIndexList(indexAbove), edgeIndexList(indexBelow));
-% 
-% pointsUnwrapped = pointsUnwrapped/unwrappedDistance*distanceOnSurf;
-% 
-% Match angle
+% sparsePointsUnwrapped = sparsePointsUnwrapped/sparseHegiht*unwrappedHeight;
+
+% For scaling, get highest non-crease aleruone edge point in bottom third of volume
+indexListBottom3rd = find( subscriptsToInterpolate(aleuroneOtherEdgeIndexList, 3) < volumeSize(3)/3 );
+
+[~, indexHighest] = max( subscriptsToInterpolate(aleuroneOtherEdgeIndexList(indexListBottom3rd), 2) );
+
+indexBelow = aleuroneOtherEdgeIndexList(indexListBottom3rd(indexHighest));
+
+% Find non-crease aleurone and endosperm edge in top half of volume that is best aligned in X
+indexAleuroneListTopHalf = find( subscriptsToInterpolate(aleuroneOtherEdgeIndexList, 3) > volumeSize(3)/2 );
+
+indexEndospermListTopHalf = find( subscriptsToInterpolate(endospermEdgeIndexList, 3) > volumeSize(3)/2 );
+
+[aleuroneDist, indexClosestAleurone] = min( abs( ...
+    subscriptsToInterpolate(aleuroneOtherEdgeIndexList(indexAleuroneListTopHalf), 1) - ...
+    subscriptsToInterpolate(indexBelow,1)));
+
+[endospermDist, indexClosestEndosperm] = min( abs( ...
+    subscriptsToInterpolate(endospermEdgeIndexList(indexEndospermListTopHalf), 1) - ...
+    subscriptsToInterpolate(indexBelow,1)));
+
+if aleuroneDist < endospermDist
+   indexAbove = (aleuroneOtherEdgeIndexList(indexAleuroneListTopHalf(indexClosestAleurone)));
+else
+   indexAbove = (endospermEdgeIndexList(indexEndospermListTopHalf(indexClosestEndosperm)));
+end
+
+%Take current unwrapped distance for scaling
+unwrappedDistance = sqrt((pointsUnwrapped((indexAbove),1) - pointsUnwrapped((indexBelow),1)).^2 +...
+    (pointsUnwrapped((indexAbove),2) - pointsUnwrapped((indexBelow),2)).^2);
+
+% Find closest sparse points on distance map and scale to match distances
+[~, closestBelowInd] = min(distanceMatrixSparse(indexBelow,:));
+
+[~, closestAboveInd] = min(distanceMatrixSparse(indexAbove,:));
+
+sparseUnwrappedDistance = sqrt((sparsePointsUnwrapped((closestAboveInd),1) - sparsePointsUnwrapped((closestBelowInd),1)).^2 +...
+    (sparsePointsUnwrapped((closestAboveInd),2) - sparsePointsUnwrapped((closestBelowInd),2)).^2);
+
+%Scale sparse based on 3D distance (not distance map, as we don't have dist between sparse points)
+distOnFull = sqrt((subscriptsToInterpolate((indexAbove),1) - subscriptsToInterpolate((indexBelow),1)).^2 +...
+    (subscriptsToInterpolate((indexAbove),2) - subscriptsToInterpolate((indexBelow),2)).^2 + ...
+    (subscriptsToInterpolate((indexAbove),3) - subscriptsToInterpolate((indexBelow),3)).^2);
+
+distOnSparse = sqrt((subscriptsForSparse((closestAboveInd),1) - subscriptsForSparse((closestBelowInd),1)).^2 +...
+    (subscriptsForSparse((closestAboveInd),2) - subscriptsForSparse((closestBelowInd),2)).^2 + ...
+    (subscriptsForSparse((closestAboveInd),3) - subscriptsForSparse((closestBelowInd),3)).^2);
+
+if distOnSparse/distOnFull < 0.99
+    error('Matching sparse points may be incorrect')
+end
+
+% Center both along above below line
+sparsePointsUnwrapped(:,2) = sparsePointsUnwrapped(:,2) - mean(sparsePointsUnwrapped([closestAboveInd closestBelowInd], 2));
+
+sparsePointsUnwrapped(:,1) = sparsePointsUnwrapped(:,1) - mean(sparsePointsUnwrapped([closestAboveInd closestBelowInd], 1));
+
+pointsUnwrapped(:,2) = pointsUnwrapped(:,2) - mean(pointsUnwrapped([indexAbove indexBelow], 2));
+
+pointsUnwrapped(:,1) = pointsUnwrapped(:,1) - mean(pointsUnwrapped([indexAbove indexBelow], 1));
+
+% Scale based on relative distances for surf and unwrapping
+distanceOnSurf = distanceMatrix((indexAbove), (indexBelow));
+
+sparsePointsUnwrapped = (sparsePointsUnwrapped/sparseUnwrappedDistance)*distanceOnSurf*(distOnSparse/distOnFull);
+
+pointsUnwrapped = (pointsUnwrapped/unwrappedDistance)*distanceOnSurf;
+
+% % Match angle.
 % unwrappedAngle = atan2(pointsUnwrapped(edgeIndexList(indexAbove),2) - pointsUnwrapped(edgeIndexList(indexBelow),2), ...
 %     pointsUnwrapped(edgeIndexList(indexAbove),1) - pointsUnwrapped(edgeIndexList(indexBelow),1));
 % 
-% warning('May need to check flipping or rotation')
-
-%%% Which one is below zero may depend on embedding...
+% % Which one is below zero may depend on embedding...
 % pointsUnwrapped = [pointsUnwrapped ones(size(pointsUnwrapped,1),1) ] * ...
 %     make_transformation_matrix([0 0], -unwrappedAngle-pi/2+pi);
 
-warning('Quick scale of sparse points - add above when full border used')
-
-sparseHegiht = max(sparsePointsUnwrapped(:,2)) - min(sparsePointsUnwrapped(:,2));
-
-unwrappedHeight = max(pointsUnwrapped(:,2)) - min(pointsUnwrapped(:,2));
-
-sparsePointsUnwrapped = sparsePointsUnwrapped/sparseHegiht*unwrappedHeight;
+warning('Need to add rotation')
 
 figure; 
 %subplot(1,2,1);
 hold on; axis equal
 
+plot(sparsePointsUnwrapped(:,1), sparsePointsUnwrapped(:,2), 'b.');
+
 plot(pointsUnwrapped(surfaceIndexList,1), pointsUnwrapped(surfaceIndexList,2), 'kx');
 
-plot(pointsUnwrapped(edgeIndexList,1), pointsUnwrapped(edgeIndexList,2), 'rx');
+plot(pointsUnwrapped(edgeIndexList,1), pointsUnwrapped(edgeIndexList,2), 'ro');
 
-plot(sparsePointsUnwrapped(:,1), sparsePointsUnwrapped(:,2), 'r.');
+plot(pointsUnwrapped((indexAbove),1), pointsUnwrapped((indexAbove),2), 'gd');
 
-% plot(pointsUnwrapped(edgeIndexList(indexAbove),1), pointsUnwrapped(edgeIndexList(indexAbove),2), 'gd');
-% 
-% plot(pointsUnwrapped(edgeIndexList(indexBelow),1), pointsUnwrapped(edgeIndexList(indexBelow),2), 'md');
+plot(pointsUnwrapped((indexBelow),1), pointsUnwrapped((indexBelow),2), 'cd');
 
 %% Test plot results
 figure; 
