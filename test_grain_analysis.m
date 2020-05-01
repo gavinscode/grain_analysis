@@ -1231,10 +1231,6 @@ nIndex = length(combinedEdgeIndexList); combinedEdgeSubscriptArray = zeros(nInde
 
 creaseAleuroneInds = find(endospermCreaseExteriorBorder(combinedEdgeIndexList));
 
- figure; imshow(combinedEdge(:,:,20))
- figure; imshow(combinedExterior(:,:,20))
- figure; imshow(grainCutVolume(:,:,20))
-
 clear combinedExterior, clear combinedEdge, 
 
 %% Calculate surface area of aleurone exterior and interior
@@ -1281,6 +1277,8 @@ if calculateArea
 end
 %% Allocate points equally across surface and border, as in bee
 %Create combined surface of endosperm and aleurone
+
+%Id is coded 1 for aleurone, 0 for endosperm
 combinedSurfaceSubscripts = [aleuroneSurfaceSubscriptArray' endospermSurfaceSubscriptArray']';
 
 combinedIdentity = zeros(size(combinedSurfaceSubscripts,1), 1);
@@ -1831,14 +1829,14 @@ aleuroneOtherEdgeIndexList = aleuroneEdgeIndexList(find( ...
 %     subscriptsToInterpolate(aleuroneCreaseEdgeIndexList,3), 'kx');
 
 % Do embedding by placing extra points into space
-sparsePointsUnwrapped = zeros(length(sparsePointsChoosen),2, 'single');
+sparsePointsUnwrapped = zeros(size(subscriptsForSparse,1),2, 'single');
 
 % Take column wise mean on orginal distance map 
 coloumnMeansDistanceMatrix = mean(distanceMatrixTemp,2);
 
 %embeddingPseudoinverse = pinv(pointsUnwrapped(:,1:2));
 
-for iPoint = 1:length(sparsePointsChoosen)
+for iPoint = 1:size(subscriptsForSparse,1)
 % From: https://stats.stackexchange.com/questions/368331/project-new-point-into-mds-space
 %     sparsePointsUnwrapped(iPoint,:) = -0.5*pointsUnwrapped(:,1:2)\(distanceMatrixSparse(:,iPoint).^2 -...
 %         coloumnMeansDistanceMatrix);
@@ -1926,14 +1924,19 @@ sparsePointsUnwrapped = (sparsePointsUnwrapped/sparseUnwrappedDistance)*distance
 pointsUnwrapped = (pointsUnwrapped/unwrappedDistance)*distanceOnSurf;
 
 % % Match angle.
-% unwrappedAngle = atan2(pointsUnwrapped(edgeIndexList(indexAbove),2) - pointsUnwrapped(edgeIndexList(indexBelow),2), ...
-%     pointsUnwrapped(edgeIndexList(indexAbove),1) - pointsUnwrapped(edgeIndexList(indexBelow),1));
-% 
-% % Which one is below zero may depend on embedding...
-% pointsUnwrapped = [pointsUnwrapped ones(size(pointsUnwrapped,1),1) ] * ...
-%     make_transformation_matrix([0 0], -unwrappedAngle-pi/2+pi);
+unwrappedAngle = atan2(pointsUnwrapped((indexAbove),2) - pointsUnwrapped((indexBelow),2), ...
+    pointsUnwrapped((indexAbove),1) - pointsUnwrapped((indexBelow),1));
 
-warning('Need to add rotation')
+% Which one is below zero may depend on embedding...
+pointsUnwrapped = [pointsUnwrapped ones(size(pointsUnwrapped,1),1) ] * ...
+    make_transformation_matrix([0 0], -unwrappedAngle-pi/2+pi);
+
+pointsUnwrapped = pointsUnwrapped(:,1:2);
+
+sparsePointsUnwrapped = [sparsePointsUnwrapped ones(size(sparsePointsUnwrapped,1),1) ] * ...
+    make_transformation_matrix([0 0], -unwrappedAngle-pi/2+pi);
+
+sparsePointsUnwrapped = sparsePointsUnwrapped(:,1:2);
 
 figure; 
 %subplot(1,2,1);
@@ -1949,57 +1952,6 @@ plot(pointsUnwrapped((indexAbove),1), pointsUnwrapped((indexAbove),2), 'gd');
 
 plot(pointsUnwrapped((indexBelow),1), pointsUnwrapped((indexBelow),2), 'cd');
 
-%% Test plot results
-figure; 
-subplot(1, 2, 1); hold on; axis equal; set(gca, 'Clipping', 'off'); axis off
-
-% plot3(endospermSurfaceSubscriptArray(:,1), endospermSurfaceSubscriptArray(:,2), ...
-%     endospermSurfaceSubscriptArray(:,3), 'g.')
-% 
-% plot3(germSurfaceSubscriptArray(:,1), germSurfaceSubscriptArray(:,2), ...
-%     germSurfaceSubscriptArray(:,3), 'b.')
-% 
-% plot3(aleuroneSurfaceSubscriptArray(:,1), aleuroneSurfaceSubscriptArray(:,2), ...
-%     aleuroneSurfaceSubscriptArray(:,3), 'y')
-
-plot3(aleuroneSurfaceSubscriptArray(surfacePointsChoosen,1), aleuroneSurfaceSubscriptArray(surfacePointsChoosen,2), ...
-    aleuroneSurfaceSubscriptArray(surfacePointsChoosen,3), 'bo')
-
-plot3(combinedEdgeSubscriptArray(edgePointsChoosen,1), combinedEdgeSubscriptArray(edgePointsChoosen,2), ...
-    combinedEdgeSubscriptArray(edgePointsChoosen,3), 'ro')
-
-line([combinedEdgeSubscriptArray(edgePointsChoosen(indexBelow),1) combinedEdgeSubscriptArray(edgePointsChoosen(indexAbove),1)],...
-    [combinedEdgeSubscriptArray(edgePointsChoosen(indexBelow),2) combinedEdgeSubscriptArray(edgePointsChoosen(indexAbove),2)],...
-    [combinedEdgeSubscriptArray(edgePointsChoosen(indexBelow),3) combinedEdgeSubscriptArray(edgePointsChoosen(indexAbove),3)],...
-    'color', 'm', 'linewidth', 2);
-
-% for i = 1:length(edgePointsChoosen)
-%     text(combinedEdgeSubscriptArray(edgePointsChoosen(i),1), combinedEdgeSubscriptArray(edgePointsChoosen(i),2), ...
-%     combinedEdgeSubscriptArray(edgePointsChoosen(i),3), sprintf('%i', i ));
-% end
-
-subplot(1, 2, 2); hold on; axis equal; set(gca, 'Clipping', 'off'); axis off
-plot3(targetSubscripts(surfaceIndexList,1), targetSubscripts(surfaceIndexList,2), ...
-    targetSubscripts(surfaceIndexList,3), 'b.')
-
-plot3(targetSubscripts(edgeIndexList,1), targetSubscripts(edgeIndexList,2), ...
-    targetSubscripts(edgeIndexList,3), 'r.')
-
-% plot3(targetSubscripts(toRemove,1), targetSubscripts(toRemove,2), ...
-%     targetSubscripts(toRemove,3), 'gx')
-
-line([targetSubscripts(edgeIndexList(indexBelow),1) targetSubscripts(edgeIndexList(indexAbove),1)],...
-    [targetSubscripts(edgeIndexList(indexBelow),2) targetSubscripts(edgeIndexList(indexAbove),2)],...
-    [targetSubscripts(edgeIndexList(indexBelow),3) targetSubscripts(edgeIndexList(indexAbove),3)],...
-    'color', 'm', 'linewidth', 2);
-
-%%% Get distance bar by calculating distance between pairs of points in 2D
-%%% and then comparing to geodesic, take average as scale (variance?)
-
-% for i = length(surfacePointsChoosen)+1:size(targetSubscripts,1)
-%     text(targetSubscripts(i,1), targetSubscripts(i,2), targetSubscripts(i,3), sprintf('%i', i - length(surfacePointsChoosen)));
-% end
-
 %% Create nice image plotting
 
 % Firstly create closed loop, similar problem as bee FOV
@@ -2014,34 +1966,36 @@ offSetFullSubscripts(:,1) = offSetFullSubscripts(:,1) - mean(sortedEdgeSubscript
 
 offSetFullSubscripts(:,2) = offSetFullSubscripts(:,2) - mean(sortedEdgeSubscripts(:,2));
 
-offSetSparseSubscripts = sparsePointsUnwrappedBSpline;
+offSetSparseSubscripts = sparsePointsUnwrapped;
 
 offSetSparseSubscripts(:,1) = offSetSparseSubscripts(:,1) - mean(sortedEdgeSubscripts(:,1));
 
 offSetSparseSubscripts(:,2) = offSetSparseSubscripts(:,2) - mean(sortedEdgeSubscripts(:,2));
 
-
-
 sortedEdgeSubscripts(:,1) = sortedEdgeSubscripts(:,1) - mean(sortedEdgeSubscripts(:,1));
 
 sortedEdgeSubscripts(:,2) = sortedEdgeSubscripts(:,2) - mean(sortedEdgeSubscripts(:,2));
 
-angles = atan2(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2));
+% Take sort edge list based on angle around origin 
+% Sequential angle sorting, fails on loop backs
+% angles = atan2(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2));
         
-[~,  edgeIndexListSorted] = sort(angles);
+% [~,  edgeIndexListSorted] = sort(angles);
 
+% Shortest path solution, works really well!
+[~, edgeIndexListSorted] = createSortedLoopwithTSP(double(sortedEdgeSubscripts));
+
+% Add first point at end to close.
 edgeIndexListSorted = [edgeIndexListSorted' edgeIndexListSorted(1)];
 
 sortedEdgeSubscripts = sortedEdgeSubscripts(edgeIndexListSorted, :);
-     
-
 
 figure; hold on;
 
 plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2))
 
 % Create 2D map for plotting.
-xRange = ceil(max(offSetFullSubscripts(:,1)) - min(offSetFullSubscripts(:,1)) + 10);
+xRange = ceil(max(sortedEdgeSubscripts(:,1)) - min(sortedEdgeSubscripts(:,1)) + 10);
 
 % Mirror Y for image orientation 
 sortedEdgeSubscripts(:,2) = -sortedEdgeSubscripts(:,2);
@@ -2050,24 +2004,22 @@ offSetFullSubscripts(:,2) = -offSetFullSubscripts(:,2);
 
 offSetSparseSubscripts(:,2) = -offSetSparseSubscripts(:,2);
 
-yRange = ceil(max(offSetFullSubscripts(:,2)) - min(offSetFullSubscripts(:,2)) + 10);
+yRange = ceil(max(sortedEdgeSubscripts(:,2)) - min(sortedEdgeSubscripts(:,2)) + 10);
 
+% Offset all matrices
+offSetFullSubscripts(:,1) = offSetFullSubscripts(:,1) - min(sortedEdgeSubscripts(:,1)) + 5;
 
+offSetFullSubscripts(:,2) = offSetFullSubscripts(:,2) - min(sortedEdgeSubscripts(:,2)) + 5;
 
-offSetFullSubscripts(:,1) = offSetFullSubscripts(:,1) - min(offSetFullSubscripts(:,1)) + 5;
+offSetSparseSubscripts(:,1) = offSetSparseSubscripts(:,1) - min(sortedEdgeSubscripts(:,1)) + 5;
 
-offSetFullSubscripts(:,2) = offSetFullSubscripts(:,2) - min(offSetFullSubscripts(:,2)) + 5;
+offSetSparseSubscripts(:,2) = offSetSparseSubscripts(:,2) - min(sortedEdgeSubscripts(:,2)) + 5;
 
-sortedEdgeSubscripts(:,1) = sortedEdgeSubscripts(:,1) - min(offSetFullSubscripts(:,1)) + 5;
+sortedEdgeSubscripts(:,1) = sortedEdgeSubscripts(:,1) - min(sortedEdgeSubscripts(:,1)) + 5;
 
-sortedEdgeSubscripts(:,2) = sortedEdgeSubscripts(:,2) - min(offSetFullSubscripts(:,2)) + 5;
+sortedEdgeSubscripts(:,2) = sortedEdgeSubscripts(:,2) - min(sortedEdgeSubscripts(:,2)) + 5;
 
-offSetSparseSubscripts(:,1) = offSetSparseSubscripts(:,1) - min(offSetFullSubscripts(:,1)) + 5;
-
-offSetSparseSubscripts(:,2) = offSetSparseSubscripts(:,2) - min(offSetFullSubscripts(:,2)) + 5;
-
-
-
+% Create mask image.
 image2Plot = zeros(xRange , yRange, 'logical');
 
 % Test which points on map are within aleurone border.
@@ -2091,10 +2043,11 @@ end
 image2Plot = imopen(image2Plot, strel('disk', 2));
 
 % Get index and subscripts again
-inAleurone = find(image2Plot(:));
+inMap = find(image2Plot(:));
 
-[XPointsIn, YPointsIn] = ind2sub([xRange, yRange], inAleurone);
+[XPointsIn, YPointsIn] = ind2sub([xRange, yRange], inMap);
 
+% Plot to test
 figure; imshow(image2Plot'); hold on;
 
 plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2), 'b')
@@ -2103,7 +2056,35 @@ plot(offSetFullSubscripts(:,1), offSetFullSubscripts(:,2), 'rx')
 
 plot(offSetSparseSubscripts(:,1), offSetSparseSubscripts(:,2), 'g.')
 
-warning('ADD scattered interpolant to assign interior pixels to aleurone or endosperm')
+%% Get voxels ID for aleurone and endosperm
+
+IDInterpolant = scatteredInterpolant( double([offSetFullSubscripts(:,1)' offSetSparseSubscripts(:,1)']'), ...
+    double([offSetFullSubscripts(:,2)' offSetSparseSubscripts(:,2)']'),...
+    [interpolatedIdentity' sparseIdentity']',...
+    'linear','none');
+
+% Interpolate into map
+IDImage = zeros(xRange , yRange);
+
+IDImage(inMap) = IDInterpolant(XPointsIn, YPointsIn) + 1;
+
+% Get specific points in each
+inAleurone = find(IDImage(inMap) == 1);
+
+XPointsInAleurone = XPointsIn(inAleurone); YPointsInAleurone = YPointsIn(inAleurone); 
+
+inAleurone = inMap(inAleurone);
+
+inEndosperm = find(IDImage(inMap) == 2);
+
+XPointsInEndosperm = XPointsIn(inEndosperm); YPointsIEndosperm = YPointsIn(inEndosperm); 
+
+inEndosperm = inMap(inEndosperm);
+
+figure; imshow((IDImage')/2); hold on;
+
+%%% Can grow image of endosperm and take intersect to aleurone to get
+%%% interior border
 
 %% Calculate thickness and intesntiy image
 %figure; subplot(1,2,1); hist(thicknessByPoint,100)
@@ -2120,7 +2101,7 @@ thicknessInterpolant = scatteredInterpolant( double([offSetFullSubscripts(values
 
 tempImage = zeros(xRange , yRange);
 
-tempImage(inAleurone) = thicknessInterpolant(XPointsIn, YPointsIn);
+tempImage(inMap) = thicknessInterpolant(XPointsIn, YPointsIn);
 
 thicknessImage = zeros(xRange , yRange, 3);
 
@@ -2149,7 +2130,7 @@ intensityInterpolant = scatteredInterpolant( double([offSetFullSubscripts(values
 
 tempImage = zeros(xRange , yRange);
 
-tempImage(inAleurone) = intensityInterpolant(XPointsIn, YPointsIn);
+tempImage(inMap) = intensityInterpolant(XPointsIn, YPointsIn);
 
 intensityImage = zeros(xRange , yRange, 3);
 
@@ -2244,7 +2225,7 @@ errorInterpolant = scatteredInterpolant( offSetFullSubscripts(:,1), ...
 
 errorImage = zeros(xRange , yRange);
 
-errorImage(inAleurone) = errorInterpolant(XPointsIn, YPointsIn);
+errorImage(inMap) = errorInterpolant(XPointsIn, YPointsIn);
 
 figure; subplot(1,3,1); imshow(errorImage'/round(max(meanErrorList))); title('mean')
 
@@ -2254,7 +2235,7 @@ errorInterpolant = scatteredInterpolant( offSetFullSubscripts(:,1), ...
 
 errorImage = zeros(xRange , yRange);
 
-errorImage(inAleurone) = errorInterpolant(XPointsIn, YPointsIn);
+errorImage(inMap) = errorInterpolant(XPointsIn, YPointsIn);
 
 subplot(1,3,2); imshow(errorImage'/round(max(minErrorList))); title('min')
 
@@ -2264,7 +2245,7 @@ errorInterpolant = scatteredInterpolant( offSetFullSubscripts(:,1), ...
 
 errorImage = zeros(xRange , yRange);
 
-errorImage(inAleurone) = errorInterpolant(XPointsIn, YPointsIn);
+errorImage(inMap) = errorInterpolant(XPointsIn, YPointsIn);
 
 subplot(1,3,3); imshow(errorImage'/round(max(maxErrorList))); title('max')
 
