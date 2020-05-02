@@ -261,5 +261,7 @@ function [xCords, yCords, zCords, distanceValues] = amanatideswooalgorithm_effic
         yCords = CordsT(1:iter-1,2);
         zCords = CordsT(1:iter-1,3);
         
-        distanceValues = distanceValues(1:iter-1);
+        if calculateDistances
+            distanceValues = distanceValues(1:iter-1);
+        end
 end

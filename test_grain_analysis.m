@@ -1614,7 +1614,7 @@ parfor iPoint = 1:nPoints %
             scale = scale + 1;
         end
 
-        %Save normal if direction found
+        % Save normal if direction found
         if gotDirection
             if jSubscript == 1
                 normalByPoint(iPoint,:) = tempNormal;
@@ -1669,7 +1669,7 @@ parfor iPoint = 1:nPoints %
                         tempIntersect = [tempX(interiorIntersects(end)), ...
                             tempY(interiorIntersects(end)), tempZ(interiorIntersects(end))]; 
 
-                        tempThickness = sum(voxelDistances(1:interiorIntersects(end)));
+                        tempThickness = sum(voxelDistances(1:interiorIntersects(end)))*VOXEL_SIZE;
 %                             sqrt((currentSubscript(1)-tempIntersect(1))^2 + ...
 %                                 (currentSubscript(2)-tempIntersect(2))^2 + ...
 %                                 (currentSubscript(3)-tempIntersect(3))^2)
@@ -1757,34 +1757,226 @@ save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i_wEn
 %load('/Users/gavintaylor/Documents/Matlab/Temp_data/distanceMatrix_10_50_3_100.mat')
 
 %% Calaculate integrals under surface.
-blockThickness = 10;
 
-depthToCalculate = 200;
+% Try to make these all integer values given Voxel thickenss
+blockThickness = 20/VOXEL_SIZE;
+
+depthToCalculate = 200/VOXEL_SIZE;
 
 numberOfBlocks = depthToCalculate/blockThickness;
 
-pointIntensityProfile = zeros(nPoints, numberOfBlocks);
+pointIntensityProfile = zeros(nPoints, numberOfBlocks)*NaN;
 
-sparseIntensityProfile = zeros(nSparsePoints, numberOfBlocks);
+sparseIntensityProfile = zeros(nSparsePoints, numberOfBlocks)*NaN;
 
-%Step through main points
-% % for iPoint = 1:nPoints
-% %     
-% %     tempNormal = normalByPoint(iPoint,:);
-% %     
-% %     %Check if aleurone of endosperm
-% %     if interpolatedIdentity(iPoint)
-% %         %Aleurone, extend line in from interior surface
-% %         
-% %         startPoint = internalIntersectByPoint(iPoint,:);
-% %         
-% %     else
-% %        %Endosperm, extend in from outer surface
-% %        startPoint = subscriptsToInterpolate(iPoint,:);
-% %     end
-% %     
-% %     %Draw line, take distance to and from start.
-% % end
+%%% Need to add in sparse points
+
+% Some catches included to correct for some points being lost if normal
+% skims border of other structure. - but some have to be lost...
+
+% Step through main points
+for iPoint = 1:nPoints
+    
+    tempNormal = normalByPoint(iPoint,:);
+    
+    if any(isnan(tempNormal))
+        warning('No normal, skipping')
+    end
+    
+    %Check if aleurone or endosperm
+    if interpolatedIdentity(iPoint)
+        %Aleurone, extend line in from interior surface
+        startPoint = internalIntersectByPoint(iPoint,:);
+
+        if any(isnan(startPoint))
+            warning('Intersect point missing')
+            
+            %More start to top of aleurone, should be ok
+            startPoint = subscriptsToInterpolate(iPoint,:);
+            
+            startAdjusted = 1;
+        else
+            startAdjusted = 0; 
+        end
+    else
+       % Endosperm, extend in from outer surface 
+       startPoint = subscriptsToInterpolate(iPoint,:);
+       
+       % Note: Need to step back to catch first block
+       % Look in reverse along normal and take first non-endosperm
+       [tempX, tempY, tempZ] = amanatideswooalgorithm_efficient(startPoint, -tempNormal, grid3D, 0,...
+            [], 10, 0);
+       
+       tempIndexList = sub2ind(volumeSize, tempX, tempY, tempZ);
+
+       notEndospermID = find(grainVolumeAligned(tempIndexList) ~= ENDOSPERM_INDEX);
+       
+       if ~isempty(notEndospermID)
+           startPoint = [tempX(notEndospermID(1)), tempY(notEndospermID(1)), tempZ(notEndospermID(1))];
+       else
+          % Should get removed later 
+           
+          warning('no good start point') 
+       end
+    end
+    
+    %Draw line in voxel space.
+    [tempX, tempY, tempZ, voxelDistances] = amanatideswooalgorithm_efficient(startPoint, tempNormal, grid3D, 0,...
+        [], depthToCalculate*1.5, 1);
+
+    indexList = sub2ind(volumeSize, tempX, tempY, tempZ);
+
+    lineIDs = grainVolumeAligned(indexList);
+
+    % Get endosperm voxels
+    endospermPoints = find(lineIDs == ENDOSPERM_INDEX);
+    
+    if ~isempty(endospermPoints)
+    
+        % Endosperm should not be on first point
+        if endospermPoints(1) == 1
+           warning('Endosperm point too early') 
+
+           endospermPoints = [];
+        end
+
+        if interpolatedIdentity(iPoint)
+
+            if ~startAdjusted
+                % All points up to first endosperm should be aleurone
+
+                if any(lineIDs(1:endospermPoints(1)-1) ~= ALEURONE_INDEX) 
+                    warning('Not all al. at start')
+
+                    endospermPoints = [];
+                end
+            else
+                % Will allow air at start in this case - sometimes breaks on germ
+                %%% Note, should be mostly corrected in tracer
+
+                if any(lineIDs(1:endospermPoints(1)-1) ~= ALEURONE_INDEX & ...
+                        lineIDs(1:endospermPoints(1)-1) ~= 0)
+                    warning('Not all al. or air at start')
+
+                    endospermPoints = [];
+                end
+            end
+        end
+        %%% Should there be a test for exterior if starting on endosperm ??
+
+        % Remove endopserm after first 'real' break
+        endospermDiff = diff(endospermPoints);
+
+        endospermSteps = find(endospermDiff > 1);
+
+        if ~isempty(endospermSteps)
+            % Check if each step is less than half block size
+
+            toInsert = [];
+            for jStep = 1:length(endospermSteps)
+
+                % Subtract one as diff is one larger than number of other
+                if endospermDiff(endospermSteps(jStep))-1 < blockThickness/2
+                    %Remove if there is not a full block after
+                     testStart = endospermPoints(endospermSteps(jStep))+endospermDiff(endospermSteps(jStep));
+
+                     testEnd = testStart + blockThickness;
+
+                     if testEnd > length(lineIDs)
+                        testEnd = length(lineIDs); 
+                     end
+                     
+                     if all(lineIDs(testStart:testEnd) == ENDOSPERM_INDEX)
+                         % Insert as endosperm points
+                         toInsert = [toInsert endospermPoints(endospermSteps(jStep))+1:...
+                             endospermPoints(endospermSteps(jStep)+1)-1];
+                     else
+                         % Remove following points
+                         endospermPoints(endospermSteps(jStep)+1:end) = [];
+
+                         warning('Part removed on following test')
+
+                         break;
+                     end
+                else
+                    %Remove without test
+                    endospermPoints(endospermSteps(jStep)+1:end) = [];
+
+                    warning('Part removed on length test')
+
+                    break
+                end
+            end
+
+            endospermPoints = sort([endospermPoints' toInsert]');
+        end
+
+        % Initalize lists with endosperm points
+        indexList = indexList(endospermPoints);
+
+        voxelDistances = (voxelDistances(endospermPoints));
+
+        voxelSum = cumsum(voxelDistances);
+
+        % Need at least one full block included
+        if sum(voxelDistances) > blockThickness
+
+            distanceIncluded = 0;
+
+            % Step through blocks, averaging intensity
+            for jBlock = 1:numberOfBlocks
+
+                % Take first set of blocks
+                blockSet = find(voxelSum < blockThickness & voxelDistances ~= 0);
+
+                if ~isempty(blockSet)
+                    distanceSet = voxelDistances(blockSet);
+
+                    %Check if final index in block is incomplete and there are following points
+                    if voxelSum(blockSet(end)) < blockThickness & ...
+                            blockSet(end) ~= length(indexList)
+                        % If so, add next index after final to block
+                        blockSet(end+1) = blockSet(end)+1;
+
+                        %Add approrpaite distance, and calcualte amount remaining
+                        distanceSet(end+1) = blockThickness - voxelSum(blockSet(end-1));
+
+                        finalRemaining = voxelSum(blockSet(end)) - blockThickness;
+                    else
+                       %Block is perfect length
+                       finalRemaining = 0; 
+                    end
+
+                    % Just include if thickness more than 3/4 of full blcok
+                    if sum(distanceSet) > blockThickness*3/4;
+                        % Take average
+                        pointIntensityProfile(iPoint, jBlock) = wmean( ...
+                            double(greyVolumeAligned(indexList(blockSet))), distanceSet);
+
+                        distanceIncluded = distanceIncluded + sum(distanceSet);
+                    end
+
+                    % Zero out remaining blocks and retake average
+                    voxelDistances(blockSet) = 0;
+
+                    if finalRemaining ~= 0
+                        voxelDistances(blockSet(end)) = finalRemaining;
+                    end
+
+                    voxelSum = cumsum(voxelDistances);
+                end
+            end
+
+            if distanceIncluded < depthToCalculate
+               warning('Full depth not reached'); 
+            end
+        else
+           warning('Less than one block') 
+        end
+    else
+       warning('No endosperm, wrong normal?') 
+    end
+end
 
 %% Calculate unwrapping 
 
@@ -2056,6 +2248,8 @@ plot(offSetFullSubscripts(:,1), offSetFullSubscripts(:,2), 'rx')
 
 plot(offSetSparseSubscripts(:,1), offSetSparseSubscripts(:,2), 'g.')
 
+warning('Indicate crease edge')
+
 %% Get voxels ID for aleurone and endosperm
 
 IDInterpolant = scatteredInterpolant( double([offSetFullSubscripts(:,1)' offSetSparseSubscripts(:,1)']'), ...
@@ -2083,6 +2277,8 @@ inEndosperm = inMap(inEndosperm);
 
 figure; imshow((IDImage')/2); hold on;
 
+%%% Do close to smooth
+
 %%% Can grow image of endosperm and take intersect to aleurone to get
 %%% interior border
 
@@ -2090,9 +2286,9 @@ figure; imshow((IDImage')/2); hold on;
 %figure; subplot(1,2,1); hist(thicknessByPoint,100)
 %subplot(1,2,2); hist(averageIntensityByPoint,100)
 
-valuesToUse = find(~isnan(thicknessByPoint) & thicknessByPoint >= 2);
+valuesToUse = find(~isnan(thicknessByPoint) & thicknessByPoint >= 2*VOXEL_SIZE);
 
-valuesToSparse = find(~isnan(thicknessForSparse) & thicknessForSparse >= 2);
+valuesToSparse = find(~isnan(thicknessForSparse) & thicknessForSparse >= 2*VOXEL_SIZE);
 
 thicknessInterpolant = scatteredInterpolant( double([offSetFullSubscripts(valuesToUse,1)' offSetSparseSubscripts(valuesToSparse,1)']'), ...
     double([offSetFullSubscripts(valuesToUse,2)' offSetSparseSubscripts(valuesToSparse,2)']'),...
@@ -2111,7 +2307,7 @@ warning('Colour range setting is note automated')
 
 [max(thicknessByPoint) max(thicknessForSparse)]
 
-thicknessImage = (thicknessImage-2)/(18-2);
+thicknessImage = (thicknessImage-2*VOXEL_SIZE)/(18*VOXEL_SIZE-2*VOXEL_SIZE);
 
 cols = zeros(100,3);
 cols(1:100,1) = (1:100)/100;
@@ -2119,7 +2315,7 @@ cols(1:100,1) = (1:100)/100;
 figure; 
 imshow(permute(thicknessImage, [2 1 3]))
 colormap(cols)
-title('Thickness'); hcb = colorbar; set(hcb,'Ticks', [0 0.5 1], 'TickLabels', {'2','10','18'})
+title('Thickness'); hcb = colorbar; set(hcb,'Ticks', [0 0.5 1], 'TickLabels', {'8','40','72'})
 
 
 % Do for intensity.
@@ -2176,7 +2372,6 @@ for iPoint = 1:nPoints
 end
 
 % Get 2D distance maps.
-parpool('local', 6)
 tic
 parfor iPoint = 1:nPoints
     dMap = bwdistgeodesic(image2Plot, pointIndex2D(iPoint), 'quasi-euclidean');
@@ -2220,8 +2415,8 @@ subplot(2,2,2); hist(meanErrorList,100); title('Mean')
 
 
 % Create error images for mean.
-errorInterpolant = scatteredInterpolant( offSetFullSubscripts(:,1), ...
-    offSetFullSubscripts(:,2), meanErrorList, 'nearest','nearest');
+errorInterpolant = scatteredInterpolant( double(offSetFullSubscripts(:,1)), ...
+   double(offSetFullSubscripts(:,2)), meanErrorList, 'nearest','nearest');
 
 errorImage = zeros(xRange , yRange);
 
@@ -2230,8 +2425,8 @@ errorImage(inMap) = errorInterpolant(XPointsIn, YPointsIn);
 figure; subplot(1,3,1); imshow(errorImage'/round(max(meanErrorList))); title('mean')
 
 % Create error images for min.
-errorInterpolant = scatteredInterpolant( offSetFullSubscripts(:,1), ...
-    offSetFullSubscripts(:,2), minErrorList, 'nearest','nearest');
+errorInterpolant = scatteredInterpolant( double(offSetFullSubscripts(:,1)), ...
+    double(offSetFullSubscripts(:,2)), minErrorList, 'nearest','nearest');
 
 errorImage = zeros(xRange , yRange);
 
@@ -2240,8 +2435,8 @@ errorImage(inMap) = errorInterpolant(XPointsIn, YPointsIn);
 subplot(1,3,2); imshow(errorImage'/round(max(minErrorList))); title('min')
 
 % Create error images for max.
-errorInterpolant = scatteredInterpolant( offSetFullSubscripts(:,1), ...
-    offSetFullSubscripts(:,2), maxErrorList, 'nearest','nearest');
+errorInterpolant = scatteredInterpolant( double(offSetFullSubscripts(:,1)), ...
+    double(offSetFullSubscripts(:,2)), maxErrorList, 'nearest','nearest');
 
 errorImage = zeros(xRange , yRange);
 
