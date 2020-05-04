@@ -1550,7 +1550,7 @@ for iPoint = 1590; %2273 %1:nPoints
     
     % Also calculate normal and use to get thickness.
     % Select points based on distance map to prevent picking points on both sides of crease.
-    indexListInRange = find(dMap(totalIndexList) < normalRadius);
+    indexListInRange = find(dMap(totalIndexList) < normalRadius*2);
     
     % Make list with this location and sparse points
     sparseLinks = pointToSparseLinks{iPoint};
@@ -1575,45 +1575,61 @@ for iPoint = 1590; %2273 %1:nPoints
         tempNormal = normaltosurface(currentSubscript , ...
             combinedSurfaceSubscripts(indexListInRange,:), [], [], normalRadius);
 
-        gotDirection = 0;
-        scale = 1;
-
-        if pointIdentities(jSubscript)
-            testValue = ALEURONE_INDEX;
+        % Test normal direction by taking weighted sum looking in both directions
+        weight = sqrt(fliplr(1:10));
+        
+        [tempX, tempY, tempZ] = amanatideswooalgorithm_efficient(startPoint, tempNormal, grid3D, 0,...
+            [], 10, 0);
+        
+        forwardIndexList = sub2ind(volumeSize, tempX, tempY, tempZ);
+        
+        forwardSum = sum( (grainVolumeAligned(forwardIndexList(1:10)) ~= 0 )' .* weight);
+        
+        [tempX, tempY, tempZ] = amanatideswooalgorithm_efficient(startPoint, -tempNormal, grid3D, 0,...
+            [], 10, 0);
+        
+        backwardIndexList = sub2ind(volumeSize, tempX, tempY, tempZ);
+        
+        backwardSum = sum( (grainVolumeAligned(backwardIndexList(1:10)) ~= 0 )' .* weight);
+        
+        % Pick direction that is at least twice as high 
+        if forwardSum > 2*backwardSum
+            gotDirection = 1;
+            
+        elseif backwardSum > 2*forwardSum
+            gotDirection = 1;
+            
+            tempNormal = -tempNormal;
+            
+            backwardIndexList = forwardIndexList;
         else
-           testValue = ENDOSPERM_INDEX; 
+            % Direction is not clear, so skip
+            gotDirection = 0;
         end
         
-        % Keeping testing normals until correct solution determined.
-        while ~gotDirection && scale < 10
-
-            coordsForward = round(currentSubscript + tempNormal*scale);
-            coordsBack = round(currentSubscript - tempNormal*scale);  
-
-            % Test normal points into aleurone, or otherwise they go into volume
-            if grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) == testValue && ...
-                    grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) ~= testValue
-                % Should be ok.
-                gotDirection = 1;
-            elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) ~= testValue && ...
-                    grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) == testValue
-                % Flip normal direction
-                tempNormal = -tempNormal;
-                gotDirection = 1;
-            elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) > 0 && ...
-                    grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) == 0
-                % Should be ok.
-                gotDirection = 1;
-            elseif grainVolumeAligned(coordsForward(1), coordsForward(2), coordsForward(3)) == 0 && ...
-                    grainVolumeAligned(coordsBack(1), coordsBack(2), coordsBack(3)) > 0
-                % Flip normal direction
-                tempNormal = -tempNormal;
-                gotDirection = 1;
+        % Test if start point can be shifted back for aleurone
+        
+        if pointIdentities(jSubscript)
+            % Check if any backwards point are edge aleurone
+            aleuroneEdgeIndex = find(grainVolumeAligned(backwardIndexList) == ALEURONE_INDEX & ...
+                grainExterior(backwardIndexList));
+            
+            airIndex = find(grainVolumeAligned(backwardIndexList) == 0);
+            
+            % Remove aleurone after first air point
+            if ~isempty(airIndex)
+                aleuroneEdgeIndex(aleuroneEdgeIndex > airIndex(1)) = [];
             end
-
-            scale = scale + 1;
+            
+            % Move start point back
+            if ~isempty(aleuroneEdgeIndex)
+                % Note, don't adjust global subscripts as they will then be inconsistent with distance maps
+                [tempX, tempY, tempZ] = ind2sub(volumeSize, backwardIndexList(aleuroneEdgeIndex));
+                
+                currentSubscript = [tempX, tempY, tempZ];
+            end
         end
-
+        
         % Save normal if direction found
         if gotDirection
             if jSubscript == 1
@@ -1772,6 +1788,8 @@ for iPoint = 1:nPoints
         [0 50]*tempNormal(3) + startPoint(3)); 
 end
     
+error('Check normals after change');
+
 %% Calaculate integrals under surface.
 
 % Try to make these all integer values given Voxel thickenss
