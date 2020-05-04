@@ -1533,8 +1533,8 @@ grid3D.maxBound = volumeSize';
 % Loop through geodesic distance calculations for each point then put into matrix.
 %parpool('local', 4);
 
-parfor iPoint = 1:nPoints %
-%for iPoint = 1000; %2273 %1:nPoints 
+%parfor iPoint = 1:nPoints %
+for iPoint = 1590; %2273 %1:nPoints 
     tic
     % Try using grain exterior volume, can traverese germ, but not curve cut
     % aleuroneExterior 
@@ -1756,6 +1756,22 @@ save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i_wEn
 
 %load('/Users/gavintaylor/Documents/Matlab/Temp_data/distanceMatrix_10_50_3_100.mat')
 
+%% Test plot normals
+%%% Mostly ok, except for borders and possibly crease
+
+figure; hold on; axis equal;
+
+for iPoint = 1:nPoints
+    tempNormal = normalByPoint(iPoint,:);
+    
+    startPoint = subscriptsToInterpolate(iPoint,:);
+
+    plot3(startPoint(1), startPoint(2), startPoint(3), 'x')    
+       
+    line([0 50]*tempNormal(1) + startPoint(1), [0 50]*tempNormal(2) + startPoint(2), ...
+        [0 50]*tempNormal(3) + startPoint(3)); 
+end
+    
 %% Calaculate integrals under surface.
 
 % Try to make these all integer values given Voxel thickenss
@@ -1780,7 +1796,7 @@ for iPoint = 1:nPoints
     tempNormal = normalByPoint(iPoint,:);
     
     if any(isnan(tempNormal))
-        warning('No normal, skipping')
+        error('No normal, skipping')
     end
     
     %Check if aleurone or endosperm
@@ -1869,6 +1885,8 @@ for iPoint = 1:nPoints
 
         endospermSteps = find(endospermDiff > 1);
 
+        % This seems superficially simlar to switch debouncing
+        
         if ~isempty(endospermSteps)
             % Check if each step is less than half block size
 
