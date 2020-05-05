@@ -2385,40 +2385,61 @@ warning('Indicate crease edge')
 IDInterpolant = scatteredInterpolant( double([offSetFullSubscripts(:,1)' offSetSparseSubscripts(:,1)']'), ...
     double([offSetFullSubscripts(:,2)' offSetSparseSubscripts(:,2)']'),...
     [interpolatedIdentity' sparseIdentity']',...
-    'linear','none');
+    'nearest','none');
 
-% Interpolate into map
-IDImage = zeros(xRange , yRange);
+% Interpolate into map - keep unit8 to force integers
+IDImage = zeros(xRange , yRange, 'uint8');
 
-IDImage(inMap) = IDInterpolant(XPointsIn, YPointsIn) + 1;
+IDImage(inMap) = uint8(IDInterpolant(XPointsIn, YPointsIn)) + 1;
+
+% Close a bit to smooth, but should avoid closing over holes
+IDImage = imclose(IDImage, strel('disk',3));
+
+%tempIDImage = imclose(IDImage, strel('disk',5)) - IDImage;
+%figure; imshow(tempIDImage*100)
 
 % Get specific points in each
-inAleurone = find(IDImage(inMap) == 1);
+inAleurone = find(IDImage(inMap) == 2);
 
 XPointsInAleurone = XPointsIn(inAleurone); YPointsInAleurone = YPointsIn(inAleurone); 
 
 inAleurone = inMap(inAleurone);
 
-inEndosperm = find(IDImage(inMap) == 2);
+inEndosperm = find(IDImage(inMap) == 1);
 
 XPointsInEndosperm = XPointsIn(inEndosperm); YPointsIEndosperm = YPointsIn(inEndosperm); 
 
 inEndosperm = inMap(inEndosperm);
 
-figure; imshow((IDImage')/2); hold on;
+figure; imshow((IDImage')*100); hold on;
 
-%%% Do close to smooth
+%´Take borders
 
-%%% Can grow image of endosperm and take intersect to aleurone to get
-%%% interior border
+tempIm = IDImage;
+
+% Just keep al to grow and get overlap
+tempIm(IDImage == 1) = 0;
+
+tempIm = imdilate(tempIm, strel('disk',1));
+
+borderInds = find(IDImage == 1 & tempIm);
+
+[borderX, borderY] = ind2sub([xRange , yRange], borderInds);
+
+hold on
+
+plot(borderX, borderY, 'g.')
+
+warning('Get full border from image as for endopserm intersect')
 
 %% Calculate thickness and intesntiy image
 %figure; subplot(1,2,1); hist(thicknessByPoint,100)
 %subplot(1,2,2); hist(averageIntensityByPoint,100)
 
-valuesToUse = find(~isnan(thicknessByPoint) & thicknessByPoint >= 2*VOXEL_SIZE);
+warning('add voxel size to thickness scaling')
+valuesToUse = find(~isnan(thicknessByPoint) & thicknessByPoint >= 1);
 
-valuesToSparse = find(~isnan(thicknessForSparse) & thicknessForSparse >= 2*VOXEL_SIZE);
+valuesToSparse = find(~isnan(thicknessForSparse) & thicknessForSparse >= 1);
 
 thicknessInterpolant = scatteredInterpolant( double([offSetFullSubscripts(valuesToUse,1)' offSetSparseSubscripts(valuesToSparse,1)']'), ...
     double([offSetFullSubscripts(valuesToUse,2)' offSetSparseSubscripts(valuesToSparse,2)']'),...
@@ -2433,17 +2454,19 @@ thicknessImage = zeros(xRange , yRange, 3);
 
 thicknessImage(:,:,1) = tempImage;
 
-warning('Colour range setting is note automated')
+warning('Colour range setting is not automated')
 
 [max(thicknessByPoint) max(thicknessForSparse)]
 
-thicknessImage = (thicknessImage-2*VOXEL_SIZE)/(18*VOXEL_SIZE-2*VOXEL_SIZE);
+%thicknessImage = (thicknessImage-2*VOXEL_SIZE)/(18*VOXEL_SIZE-2*VOXEL_SIZE);
+warning('Change thicknes scaling')
+thicknessImage = (thicknessImage-2)/(18-2);
 
 endoImage = zeros(xRange , yRange);
 
-endoImage(inEndosperm) = 0.5;
+endoImage(inEndosperm) = 0.4;
 
-thicknessImage(:,:,2) = endoImage;
+%thicknessImage(:,:,2) = endoImage;
 
 cols = zeros(100,3);
 cols(1:100,1) = (1:100)/100;
@@ -2453,6 +2476,9 @@ imshow(permute(thicknessImage, [2 1 3]))
 colormap(cols)
 title('Thickness'); hcb = colorbar; set(hcb,'Ticks', [0 0.5 1], 'TickLabels', {'8','40','72'})
 
+hold on
+plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2), 'w.')
+plot(borderX, borderY, 'g.')
 
 % Do for intensity.
 intensityInterpolant = scatteredInterpolant( double([offSetFullSubscripts(valuesToUse,1)' offSetSparseSubscripts(valuesToSparse,1)']'), ...
@@ -2473,7 +2499,7 @@ intensityImage(:,:,3) = tempImage;
 
 intensityImage = (intensityImage-50)/(250-50);
 
-intensityImage(:,:,2) = endoImage;
+%intensityImage(:,:,2) = endoImage;
 
 cols = zeros(100,3);
 cols(1:100,3) = (1:100)/100;
@@ -2483,6 +2509,10 @@ imshow(permute(intensityImage, [2 1 3]))
 colormap(cols)
 title('Intensity'); hcb = colorbar; set(hcb,'Ticks', [0 0.5 1], 'TickLabels', {'50','150','250'})
 
+hold on
+plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2), 'w.')
+plot(borderX, borderY, 'g.')
+
 % Make overlay.
 overlayImage = thicknessImage + intensityImage;
 
@@ -2491,6 +2521,10 @@ overlayImage(:,:,2) = overlayImage(:,:,2)/2;
 figure;
 imshow(permute(overlayImage, [2 1 3]));
 title('Overlay');
+
+hold on
+plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2), 'w.')
+plot(borderX, borderY, 'g.')
 %% Calculate distance error images
 % Need to distance calculate between points in 2D.
 distanceMatrix2D = zeros(nPoints, nPoints)*NaN;
