@@ -1,3 +1,6 @@
+% To do
+    %Normalize intensity between multiple grains based on germ histogram
+
 % Test load and plot of grain stack.
 clc; clear; close all
 
@@ -35,9 +38,14 @@ VOXEL_SIZE = 4;
 
 % Flags
 calculateArea = 0; % Very time consuming.
+
 testPlotNormals = 0;
 
-maxAleuroneThickness = 50; %In voxels - previous limit at 20
+maxAleuroneThickness = 75; %In voxels - previous limit at 20
+
+blockThickness = 20/VOXEL_SIZE;
+
+depthToCalculate = 200/VOXEL_SIZE;
 %% Get voxels on exterior of orignal grain by overlap to exterior.
 % Get pixels in grain.
 grainIndexList = find(grainVolume);
@@ -1506,8 +1514,6 @@ distanceMatrixSparse = zeros(nPoints, nSparsePoints, 'single')*NaN;
 
 whos distanceMatrixSparse
 
-
-
 normalByPoint = zeros(nPoints, 3)*NaN; normalForSparseCell = cell(nPoints, 1);  
 
 internalIntersectByPoint = zeros(nPoints, 3)*NaN; internalIntersectForSparseCell = cell(nPoints, 1);
@@ -1533,8 +1539,8 @@ grid3D.maxBound = volumeSize';
 % Loop through geodesic distance calculations for each point then put into matrix.
 %parpool('local', 4);
 
-%parfor iPoint = 1:nPoints %
-for iPoint = 1590; %2273 %1:nPoints 
+%parfor iPoint = 93:nPoints %
+for iPoint = 93:nPoints
     tic
     % Try using grain exterior volume, can traverese germ, but not curve cut
     % aleuroneExterior 
@@ -1575,58 +1581,85 @@ for iPoint = 1590; %2273 %1:nPoints
         tempNormal = normaltosurface(currentSubscript , ...
             combinedSurfaceSubscripts(indexListInRange,:), [], [], normalRadius);
 
-        % Test normal direction by taking weighted sum looking in both directions
-        weight = sqrt(fliplr(1:10));
+        % Test normal direction by looking in both directions for greater than 2 lengths of air
+        depth = 10;
         
-        [tempX, tempY, tempZ] = amanatideswooalgorithm_efficient(startPoint, tempNormal, grid3D, 0,...
-            [], 10, 0);
+        [tempX, tempY, tempZ, forwardDistance] = amanatideswooalgorithm_efficient(currentSubscript, tempNormal, grid3D, 0,...
+            [], depth, 1);
         
         forwardIndexList = sub2ind(volumeSize, tempX, tempY, tempZ);
+         
+        forwardSum = cumsum((grainVolumeAligned(forwardIndexList) == 0 ) .* forwardDistance);
         
-        forwardSum = sum( (grainVolumeAligned(forwardIndexList(1:10)) ~= 0 )' .* weight);
+        forwardIndex = find(forwardSum > 2);
         
-        [tempX, tempY, tempZ] = amanatideswooalgorithm_efficient(startPoint, -tempNormal, grid3D, 0,...
-            [], 10, 0);
+        [tempX, tempY, tempZ, backwardDistance] = amanatideswooalgorithm_efficient(currentSubscript, -tempNormal, grid3D, 0,...
+            [], depth, 1);
         
         backwardIndexList = sub2ind(volumeSize, tempX, tempY, tempZ);
         
-        backwardSum = sum( (grainVolumeAligned(backwardIndexList(1:10)) ~= 0 )' .* weight);
+        backwardSum = cumsum((grainVolumeAligned(backwardIndexList) == 0 ) .* backwardDistance);
+
+        backwardIndex = find(backwardSum > 2);
         
-        % Pick direction that is at least twice as high 
-        if forwardSum > 2*backwardSum
+       % [grainVolumeAligned(forwardIndexList(1:depth)) grainVolumeAligned(backwardIndexList(1:depth))]
+
+        % Pick direction based on indexes
+        if isempty(forwardIndex) & ~isempty(backwardIndex)
             gotDirection = 1;
             
-        elseif backwardSum > 2*forwardSum
+        elseif ~isempty(forwardIndex) & isempty(backwardIndex)
             gotDirection = 1;
             
             tempNormal = -tempNormal;
+        elseif ~isempty(forwardIndex) & ~isempty(backwardIndex)
+            forwardTest = sum(forwardDistance(1:forwardIndex(1)));
             
-            backwardIndexList = forwardIndexList;
-        else
+            backwardTest = sum(backwardDistance(1:backwardIndex(1)));
+            
+            if forwardTest > backwardTest
+                gotDirection = 1;
+            elseif forwardTest < backwardTest
+                gotDirection = 1;
+            
+                tempNormal = -tempNormal;
+            elseif forwardTest == backwardTest
+                warning('No clear direction -  air inds at equal distance')
+                
+                gotDirection = 0;
+            end
+        elseif isempty(forwardIndex) & isempty(backwardIndex)
             % Direction is not clear, so skip
+            warning('No clear direction - no air inds')
             gotDirection = 0;
         end
         
         % Test if start point can be shifted back for aleurone
+        % Does not allow any air gap
+        
+        % Goal is to actually shift back to middle of first other point, so
+        % normal will go all the way through 1st point
         
         if pointIdentities(jSubscript)
-            % Check if any backwards point are edge aleurone
-            aleuroneEdgeIndex = find(grainVolumeAligned(backwardIndexList) == ALEURONE_INDEX & ...
-                grainExterior(backwardIndexList));
+            [tempX, tempY, tempZ, tempDistances] = amanatideswooalgorithm_efficient(currentSubscript, -tempNormal, grid3D, 0,...
+                [], 10, 1);
             
-            airIndex = find(grainVolumeAligned(backwardIndexList) == 0);
+            tempIndexList = sub2ind(volumeSize, tempX, tempY, tempZ);
+
+            % Take first non aleurone index
+            notAleuroneID = find(grainVolumeAligned(tempIndexList) ~= ALEURONE_INDEX);
             
-            % Remove aleurone after first air point
-            if ~isempty(airIndex)
-                aleuroneEdgeIndex(aleuroneEdgeIndex > airIndex(1)) = [];
-            end
             
-            % Move start point back
-            if ~isempty(aleuroneEdgeIndex)
-                % Note, don't adjust global subscripts as they will then be inconsistent with distance maps
-                [tempX, tempY, tempZ] = ind2sub(volumeSize, backwardIndexList(aleuroneEdgeIndex));
+            % Move start point back if possible
+            if ~isempty(notAleuroneID)
+                % Calculate distance to step back so halfway into 1st other point
+           
+               startDistBack = sum(tempDistances(1:(notAleuroneID(1)-1))) + ...
+                   tempDistances(notAleuroneID(1))/2;
+            else
+                startDistBack = 0;
                 
-                currentSubscript = [tempX, tempY, tempZ];
+                warning('Could not adjust aleurone back')
             end
         end
         
@@ -1656,68 +1689,102 @@ for iPoint = 1590; %2273 %1:nPoints
             end
 
             %Draw line in voxel space.
-            [tempX, tempY, tempZ, voxelDistances] = amanatideswooalgorithm_efficient(currentSubscript, tempNormal, grid3D, 0,...
-                [], maxAleuroneThickness, 1);
+            [tempX, tempY, tempZ, voxelDistances] = amanatideswooalgorithm_efficient(currentSubscript-startDistBack*tempNormal, ...
+                tempNormal, grid3D, 0, [], maxAleuroneThickness, 1);
 
             indexList = sub2ind(volumeSize, tempX, tempY, tempZ);
 
-            % Find intersects
-            interiorIntersects = find(aleuroneInterior(indexList));
-
-            %Remove all after break in interior intersects (will hit other side)
-            intersectSteps = find(diff(interiorIntersects) > 1);
+            % Cut line to aleurone inds (1st should be non-aleurone)
+            aleuroneInds = find(grainVolumeAligned(indexList) == ALEURONE_INDEX);
             
-            if ~isempty(intersectSteps)
-                interiorIntersects(intersectSteps(1)+1:end) = [];
+            if aleuroneInds(1) > 1
+                indexList = indexList(aleuroneInds(1):end);
+                
+                voxelDistances = voxelDistances(aleuroneInds(1):end);
+                
+                tempX = tempX(aleuroneInds(1):end); 
+                tempY = tempY(aleuroneInds(1):end); 
+                tempZ = tempZ(aleuroneInds(1):end);
+                
+%                 currentSubscript
+%                 [tempX(1), tempY(1), tempZ(1)]
             end
             
-            % Now limited in amantides function and continuity test
-            %interiorIntersects(interiorIntersects > 20) = [];
+            % Find intersects
+            % Using interior intersects some extra skimming problems
+            lineIDs = grainVolumeAligned(indexList);
+            
+            interiorList = aleuroneInterior(indexList);
+            
+            interiorPoints = find(interiorList);
 
-            % Test intersects are present/in correct  order.
-            if ~isempty(interiorIntersects)
-                % Check all points are aleurone
-                
-                if all( grainVolumeAligned( indexList(1:(interiorIntersects(end)))) == ALEURONE_INDEX) & ...
-                        ~any( grainVolumeAligned(indexList(1:(interiorIntersects(end)))) ~= ALEURONE_INDEX)
-
-                        % Points is ok, record and thickness + intensity.
-                        tempIntersect = [tempX(interiorIntersects(end)), ...
-                            tempY(interiorIntersects(end)), tempZ(interiorIntersects(end))]; 
-
-                        tempThickness = sum(voxelDistances(1:interiorIntersects(end)))*VOXEL_SIZE;
-%                             sqrt((currentSubscript(1)-tempIntersect(1))^2 + ...
-%                                 (currentSubscript(2)-tempIntersect(2))^2 + ...
-%                                 (currentSubscript(3)-tempIntersect(3))^2)
+            %[lineIDs(1:50) interiorList(1:50)]
+            
+            if isempty(interiorPoints) & lineIDs(end) == ALEURONE_INDEX
+               error('Max depth insufficient') 
+            end
+            
+            %Find breaks in interior intersects
+            interiorDiff = diff(interiorPoints);
+            
+            interiorSteps = find(interiorDiff > 1);
+            
+            if ~isempty(interiorSteps)
+                for kStep = 1:length(interiorSteps)
+                    testStart = interiorPoints(interiorSteps(kStep))+1;
+                    
+                    testEnd = testStart - 1 + interiorDiff(interiorSteps(kStep))-1;
+                    
+                    testInds = testStart:testEnd;
+                    
+                    % Test if gap filled by aleruone
+                    % Weird that gap between al interior border should be filled by al, 
+                        % but occurs due to skimming.
+                    if any(lineIDs(testInds) ~= ALEURONE_INDEX)
+                        % Test what length is filled by other IDs
+                        testInds = testInds(lineIDs(testInds) ~= ALEURONE_INDEX);
                         
-                        tempIntensity = wmean( double(greyVolumeAligned( indexList(1:interiorIntersects(end)))),...
-                            voxelDistances(1:interiorIntersects(end)));
-%                              mean( double(greyVolumeAligned( indexList(1:interiorIntersects(end)))))
-                        
-                        if jSubscript == 1            
-                            internalIntersectByPoint(iPoint,:) = tempIntersect;
-
-                            thicknessByPoint(iPoint) = tempThickness;
-
-                            averageIntensityByPoint(iPoint) = tempIntensity;
-
-                        else
-                            tempInternalIntersectArray(jSubscript-1,:) = tempIntersect;
-
-                            tempThicknessArray(jSubscript-1) = tempThickness;
-
-                            tempAverageIntensityArray(jSubscript-1) = tempIntensity;
+                        if sum(voxelDistances(testInds)) > blockThickness/2
+                            % Remove if more than half block of other points
+                            interiorPoints(interiorSteps(kStep)+1:end) = [];
                             
+                            break;
                         end
-                        
-                        if testPlotNormals
-                            plot3(tempIntersect(1), tempIntersect(2), ...
-                                tempIntersect(3),'mo');
-                        end
-                else
-                    [iPoint jSubscript]
-                    warning('Not all aleurone before interior intersect');
+                    end
                 end
+            end
+            
+            if ~isempty(interiorPoints)
+                % Points is ok, record and thickness + intensity.
+                tempIntersect = [tempX(interiorPoints(end)), ...
+                    tempY(interiorPoints(end)), tempZ(interiorPoints(end))]; 
+
+                tempThickness = sum(voxelDistances(1:interiorPoints(end)))*VOXEL_SIZE;
+
+                tempIntensity = wmean( double(greyVolumeAligned( indexList(1:interiorPoints(end)))),...
+                    voxelDistances(1:interiorPoints(end)));
+
+                if jSubscript == 1            
+                    internalIntersectByPoint(iPoint,:) = tempIntersect;
+
+                    thicknessByPoint(iPoint) = tempThickness;
+
+                    averageIntensityByPoint(iPoint) = tempIntensity;
+
+                else
+                    tempInternalIntersectArray(jSubscript-1,:) = tempIntersect;
+
+                    tempThicknessArray(jSubscript-1) = tempThickness;
+
+                    tempAverageIntensityArray(jSubscript-1) = tempIntensity;
+
+                end
+
+                if testPlotNormals
+                    plot3(tempIntersect(1), tempIntersect(2), ...
+                        tempIntersect(3),'mo');
+                end
+                
             else
                [iPoint jSubscript]
                warning('No interior intersect');
@@ -1761,7 +1828,7 @@ for iPoint = 1:nPoints
     end
 end
 
-save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i_wEndo_distOnFull_voxelFractions', 'distanceMatrix', ...
+save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i_wEndo_distOnFull_voxelFractions_updateSkimming', 'distanceMatrix', ...
         edgeDistance, surfaceDistance, sparsePointsDistance, normalRadius), ...
     'edgeDistance', 'surfaceDistance', 'sparsePointsDistance', 'normalRadius',...    
     'distanceMatrix', 'subscriptsToInterpolate', 'interpolatedIdentity',... 
@@ -1793,10 +1860,6 @@ error('Check normals after change');
 %% Calaculate integrals under surface.
 
 % Try to make these all integer values given Voxel thickenss
-blockThickness = 20/VOXEL_SIZE;
-
-depthToCalculate = 200/VOXEL_SIZE;
-
 numberOfBlocks = depthToCalculate/blockThickness;
 
 pointIntensityProfile = zeros(nPoints, numberOfBlocks)*NaN;
@@ -1832,36 +1895,46 @@ for iPoint = 1:nPoints
         else
             startAdjusted = 0; 
         end
+        
+        startDistBack = 0;
     else
        % Endosperm, extend in from outer surface 
        startPoint = subscriptsToInterpolate(iPoint,:);
        
        % Note: Need to step back to catch first block
        % Look in reverse along normal and take first non-endosperm
-       [tempX, tempY, tempZ] = amanatideswooalgorithm_efficient(startPoint, -tempNormal, grid3D, 0,...
-            [], 10, 0);
+       [tempX, tempY, tempZ, tempDistances] = amanatideswooalgorithm_efficient(startPoint, -tempNormal, grid3D, 0,...
+            [], 10, 1);
        
        tempIndexList = sub2ind(volumeSize, tempX, tempY, tempZ);
 
        notEndospermID = find(grainVolumeAligned(tempIndexList) ~= ENDOSPERM_INDEX);
        
        if ~isempty(notEndospermID)
-           startPoint = [tempX(notEndospermID(1)), tempY(notEndospermID(1)), tempZ(notEndospermID(1))];
+           % Calculate distance to step back so halfway into 1st other point
+            
+           error('Test this')
+           
+           startDistBack = sum(tempDistances(1:notEndospermID(1)-1)) + ...
+               tempDistances(notEndospermID(1))/2;
        else
           % Should get removed later 
-           
+          startDistBack = 0; 
+          
           warning('no good start point') 
        end
     end
     
     %Draw line in voxel space.
-    [tempX, tempY, tempZ, voxelDistances] = amanatideswooalgorithm_efficient(startPoint, tempNormal, grid3D, 0,...
-        [], depthToCalculate*1.5, 1);
+    [tempX, tempY, tempZ, voxelDistances] = amanatideswooalgorithm_efficient(startPoint - tempNormal*startDistBack, ...
+        tempNormal, grid3D, 0, [], depthToCalculate*2, 1);
 
     indexList = sub2ind(volumeSize, tempX, tempY, tempZ);
 
     lineIDs = grainVolumeAligned(indexList);
 
+    voxelSum = cumsum(voxelDistances);
+    
     % Get endosperm voxels
     endospermPoints = find(lineIDs == ENDOSPERM_INDEX);
     
@@ -1869,60 +1942,81 @@ for iPoint = 1:nPoints
     
         % Endosperm should not be on first point
         if endospermPoints(1) == 1
-           warning('Endosperm point too early') 
+           error('Endosperm point too early') 
 
            endospermPoints = [];
         end
 
         if interpolatedIdentity(iPoint)
 
+            % First point should always be al.
+            if lineIDs(1) ~= ALEURONE_INDEX
+               error('First point is not al.') 
+
+               endospermPoints = [];
+            end
+
             if ~startAdjusted
                 % All points up to first endosperm should be aleurone
-
-                if any(lineIDs(1:endospermPoints(1)-1) ~= ALEURONE_INDEX) 
-                    warning('Not all al. at start')
+                
+                if any(lineIDs(2:endospermPoints(1)-1) ~= ALEURONE_INDEX) 
+                    warning('Not all al. before endosperm')
 
                     endospermPoints = [];
                 end
             else
                 % Will allow air at start in this case - sometimes breaks on germ
-                %%% Note, should be mostly corrected in tracer
 
-                if any(lineIDs(1:endospermPoints(1)-1) ~= ALEURONE_INDEX & ...
-                        lineIDs(1:endospermPoints(1)-1) ~= 0)
-                    warning('Not all al. or air at start')
+                if any(lineIDs(2:endospermPoints(1)-1) ~= ALEURONE_INDEX & ...
+                        lineIDs(2:endospermPoints(1)-1) ~= 0)
+                    warning('Not all al. or air between surface and endosperm')
 
                     endospermPoints = [];
                 end
             end
         end
-        %%% Should there be a test for exterior if starting on endosperm ??
 
         % Remove endopserm after first 'real' break
         endospermDiff = diff(endospermPoints);
 
         endospermSteps = find(endospermDiff > 1);
 
-        % This seems superficially simlar to switch debouncing
+        %[lineIDs(1:20) voxelSum(1:20)]
+        
+        % Fun note: This seems superficially simlar to switch debouncing
+        % Note: By doing this correction for both aleurone thickness and
+            % endosperm intensity, points on border could be counted in both if
+            % 1 1 2 1 2 2 interlaced pattern. 
+            % However, should be avoided after correction in aleurone tracer
         
         if ~isempty(endospermSteps)
             % Check if each step is less than half block size
-
+            
             toInsert = [];
             for jStep = 1:length(endospermSteps)
 
-                % Subtract one as diff is one larger than number of other
-                if endospermDiff(endospermSteps(jStep))-1 < blockThickness/2
+                testStart = endospermPoints(endospermSteps(jStep))+1;
+                    
+                testEnd = testStart - 1 + endospermDiff(endospermSteps(jStep))-1;
+
+                testInds = testStart:testEnd;
+                    
+                if sum(voxelDistances(testInds)) < blockThickness/2
                     %Remove if there is not a full block after
-                     testStart = endospermPoints(endospermSteps(jStep))+endospermDiff(endospermSteps(jStep));
-
-                     testEnd = testStart + blockThickness;
-
-                     if testEnd > length(lineIDs)
-                        testEnd = length(lineIDs); 
-                     end
+                     testStart = endospermPoints(endospermSteps(jStep))+endospermDiff(endospermSteps(jStep))-1;
                      
-                     if all(lineIDs(testStart:testEnd) == ENDOSPERM_INDEX)
+                     % Length should be slightly less than thickness
+                     testInds = find(voxelSum > voxelSum(testStart) & ...
+                        voxelSum < (voxelSum(testStart) + blockThickness) );
+                     
+                     % Check if last ind needs adding
+                     if sum(voxelDistances(testInds)) < ...
+                         blockThickness
+                         
+                         testInds(end+1) = testInds(end) + 1;
+                     end
+                    
+                     if all(lineIDs(testInds) == ENDOSPERM_INDEX)
                          % Insert as endosperm points
                          toInsert = [toInsert endospermPoints(endospermSteps(jStep))+1:...
                              endospermPoints(endospermSteps(jStep)+1)-1];
@@ -2333,7 +2427,7 @@ thicknessInterpolant = scatteredInterpolant( double([offSetFullSubscripts(values
 
 tempImage = zeros(xRange , yRange);
 
-tempImage(inMap) = thicknessInterpolant(XPointsIn, YPointsIn);
+tempImage(inAleurone) = thicknessInterpolant(XPointsInAleurone, YPointsInAleurone);
 
 thicknessImage = zeros(xRange , yRange, 3);
 
@@ -2344,6 +2438,12 @@ warning('Colour range setting is note automated')
 [max(thicknessByPoint) max(thicknessForSparse)]
 
 thicknessImage = (thicknessImage-2*VOXEL_SIZE)/(18*VOXEL_SIZE-2*VOXEL_SIZE);
+
+endoImage = zeros(xRange , yRange);
+
+endoImage(inEndosperm) = 0.5;
+
+thicknessImage(:,:,2) = endoImage;
 
 cols = zeros(100,3);
 cols(1:100,1) = (1:100)/100;
@@ -2362,7 +2462,7 @@ intensityInterpolant = scatteredInterpolant( double([offSetFullSubscripts(values
 
 tempImage = zeros(xRange , yRange);
 
-tempImage(inMap) = intensityInterpolant(XPointsIn, YPointsIn);
+tempImage(inAleurone) = intensityInterpolant(XPointsInAleurone, YPointsInAleurone);
 
 intensityImage = zeros(xRange , yRange, 3);
 
@@ -2372,6 +2472,8 @@ intensityImage(:,:,3) = tempImage;
 [min(averageIntensityByPoint) min(averageIntensityForSparse)]
 
 intensityImage = (intensityImage-50)/(250-50);
+
+intensityImage(:,:,2) = endoImage;
 
 cols = zeros(100,3);
 cols(1:100,3) = (1:100)/100;
@@ -2383,6 +2485,8 @@ title('Intensity'); hcb = colorbar; set(hcb,'Ticks', [0 0.5 1], 'TickLabels', {'
 
 % Make overlay.
 overlayImage = thicknessImage + intensityImage;
+
+overlayImage(:,:,2) = overlayImage(:,:,2)/2;
 
 figure;
 imshow(permute(overlayImage, [2 1 3]));
