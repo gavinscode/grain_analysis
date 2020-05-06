@@ -1540,7 +1540,7 @@ grid3D.maxBound = volumeSize';
 %parpool('local', 4);
 
 %parfor iPoint = 1:nPoints %
-for iPoint = 867 ;%1:nPoints
+for iPoint = 100:nPoints
     tic
     % Try using grain exterior volume, can traverese germ, but not curve cut
     % aleuroneExterior 
@@ -1591,7 +1591,7 @@ for iPoint = 867 ;%1:nPoints
          
         forwardSum = cumsum((grainVolumeAligned(forwardIndexList) == 0 ) .* forwardDistance);
         
-        forwardIndex = find(forwardSum > 2);
+        forwardAirIndex = find(forwardSum > 1);
         
         [tempX, tempY, tempZ, backwardDistance] = amanatideswooalgorithm_efficient(currentSubscript, -tempNormal, grid3D, 0,...
             [], depth, 1);
@@ -1600,37 +1600,51 @@ for iPoint = 867 ;%1:nPoints
         
         backwardSum = cumsum((grainVolumeAligned(backwardIndexList) == 0 ) .* backwardDistance);
 
-        backwardIndex = find(backwardSum > 2);
+        backwardAirIndex = find(backwardSum > 1);
         
-       % [grainVolumeAligned(forwardIndexList(1:depth)) grainVolumeAligned(backwardIndexList(1:depth))]
-
+        % [grainVolumeAligned(forwardIndexList(1:depth)) grainVolumeAligned(backwardIndexList(1:depth))]
+       
         % Pick direction based on indexes
-        if isempty(forwardIndex) & ~isempty(backwardIndex)
+        if isempty(forwardAirIndex) & ~isempty(backwardAirIndex)
             gotDirection = 1;
             
-        elseif ~isempty(forwardIndex) & isempty(backwardIndex)
+        elseif ~isempty(forwardAirIndex) & isempty(backwardAirIndex)
             gotDirection = 1;
             
             tempNormal = -tempNormal;
-        elseif ~isempty(forwardIndex) & ~isempty(backwardIndex)
-            forwardTest = sum(forwardDistance(1:forwardIndex(1)));
+        elseif ~isempty(forwardAirIndex) & ~isempty(backwardAirIndex)
+            %Find length of non-air inds after 1st 2 (at end of list, after 1st air point).
             
-            backwardTest = sum(backwardDistance(1:backwardIndex(1)));
+            forwardIndexList = forwardIndexList(forwardAirIndex(1):end);  
             
-            if forwardTest > backwardTest
+            forwardEndSum = sum((grainVolumeAligned(forwardIndexList) > 0) .* ...
+                forwardDistance(forwardAirIndex(1):end));
+            
+            backwardIndexList = backwardIndexList(backwardAirIndex(1):end);
+            
+            backwardEndSum = sum((grainVolumeAligned(backwardIndexList) > 0) .* ...
+                backwardDistance(backwardAirIndex(1):end));
+            
+            % Hoping for a clear distinction, other wise just give a warning
+            if forwardEndSum > 4*backwardEndSum
                 gotDirection = 1;
-            elseif forwardTest < backwardTest
-                gotDirection = 1;
+                
+            elseif 4*forwardEndSum < backwardEndSum
+                 gotDirection = 1;
             
                 tempNormal = -tempNormal;
-            elseif forwardTest == backwardTest
-                warning('No clear direction -  air inds at equal distance')
-                
+            else
+                warning('No clear direction -  air inds on both sides')
+
                 gotDirection = 0;
             end
-        elseif isempty(forwardIndex) & isempty(backwardIndex)
+            %Note, this will mostly likely get discarded in intersection
+            %and intergral test, but aim here is to get correct direction
+            
+        elseif isempty(forwardAirIndex) & isempty(backwardAirIndex)
             % Direction is not clear, so skip
             warning('No clear direction - no air inds')
+            
             gotDirection = 0;
         end
         
@@ -1668,34 +1682,33 @@ for iPoint = 867 ;%1:nPoints
             % Test if start point can be shifted back for aleurone
             %%% Need to prepend lists otherwise shift in line will occur due to rounding in amanatides 
             % Does not allow any air gap
-            if pointIdentities(jSubscript)
-                [tempXNeg, tempYNeg, tempZNeg, tempDistancesNeg] = amanatideswooalgorithm_efficient(currentSubscript, -tempNormal, grid3D, 0,...
-                    [], 10, 1);
+            [tempXNeg, tempYNeg, tempZNeg, tempDistancesNeg] = amanatideswooalgorithm_efficient(currentSubscript, -tempNormal, grid3D, 0,...
+                [], 10, 1);
 
-                tempIndexList = sub2ind(volumeSize, tempXNeg, tempYNeg, tempZNeg);
+            tempIndexList = sub2ind(volumeSize, tempXNeg, tempYNeg, tempZNeg);
 
-                % Take first non aleurone index
-                notAleuroneID = find(grainVolumeAligned(tempIndexList) ~= ALEURONE_INDEX);
+            % Take first non aleurone index
+            notAleuroneID = find(grainVolumeAligned(tempIndexList) ~= ALEURONE_INDEX);
 
-                if indexList(1) == tempIndexList(1)
-                    if ~isempty(notAleuroneID)
-                       % Move start point back if possible
-                       if notAleuroneID(1) > 2
-                            tempX = [fliplr(tempXNeg(2:(notAleuroneID(1)-1))') tempX']';
-                            
-                            tempY = [fliplr(tempYNeg(2:(notAleuroneID(1)-1))') tempY']';
-                            
-                            tempZ = [fliplr(tempZNeg(2:(notAleuroneID(1)-1))') tempZ']';
-                            
-                            indexList = [fliplr(tempIndexList(2:(notAleuroneID(1)-1))') indexList']';
-                            
-                            voxelDistances = [fliplr(tempDistancesNeg(2:(notAleuroneID(1)-1))') voxelDistances']';
-                    else
-                        warning('No precceding non-aleurone')
-                    end
+            if indexList(1) == tempIndexList(1)
+                if ~isempty(notAleuroneID)
+                   % Move start point back if possible
+                   if notAleuroneID(1) > 2
+                        tempX = [fliplr(tempXNeg(2:(notAleuroneID(1)-1))') tempX']';
+
+                        tempY = [fliplr(tempYNeg(2:(notAleuroneID(1)-1))') tempY']';
+
+                        tempZ = [fliplr(tempZNeg(2:(notAleuroneID(1)-1))') tempZ']';
+
+                        indexList = [fliplr(tempIndexList(2:(notAleuroneID(1)-1))') indexList']';
+
+                        voxelDistances = [fliplr(tempDistancesNeg(2:(notAleuroneID(1)-1))') voxelDistances']';
+                   end
                 else
-                   error('Start indexes do not match') 
+                    warning('No precceding non-aleurone')
                 end
+            else
+               error('Start indexes do not match') 
             end
             
             % Find intersects
@@ -1880,44 +1893,49 @@ for iPoint = 1:nPoints
         else
             startAdjusted = 0; 
         end
-        
-        startDistBack = 0;
     else
        % Endosperm, extend in from outer surface 
        startPoint = subscriptsToInterpolate(iPoint,:);
-       
-       error('update to append arrays')
-       
-       % Note: Need to step back to catch first block
-       % Look in reverse along normal and take first non-endosperm
-       [tempX, tempY, tempZ, tempDistances] = amanatideswooalgorithm_efficient(startPoint, -tempNormal, grid3D, 0,...
-            [], 10, 1);
-       
-       tempIndexList = sub2ind(volumeSize, tempX, tempY, tempZ);
-
-       notEndospermID = find(grainVolumeAligned(tempIndexList) ~= ENDOSPERM_INDEX);
-       
-       if ~isempty(notEndospermID)
-           % Calculate distance to step back so halfway into 1st other point
-            
-           error('Test this')
-           
-           startDistBack = sum(tempDistances(1:notEndospermID(1)-1)) + ...
-               tempDistances(notEndospermID(1))/2;
-       else
-          % Should get removed later 
-          startDistBack = 0; 
-          
-          warning('no good start point') 
-       end
     end
     
     %Draw line in voxel space.
-    [tempX, tempY, tempZ, voxelDistances] = amanatideswooalgorithm_efficient(startPoint - tempNormal*startDistBack, ...
+    [tempX, tempY, tempZ, voxelDistances] = amanatideswooalgorithm_efficient(startPoint, ...
         tempNormal, grid3D, 0, [], depthToCalculate*2, 1);
 
     indexList = sub2ind(volumeSize, tempX, tempY, tempZ);
 
+    if ~interpolatedIdentity(iPoint)
+        % Add preceding point so endosperm starts one voxel back
+        [tempXNeg, tempYNeg, tempZNeg, tempDistancesNeg] = amanatideswooalgorithm_efficient(startPoint, ...
+            -tempNormal, grid3D, 0, [], 10, 1);
+
+        tempIndexList = sub2ind(volumeSize, tempXNeg, tempYNeg, tempZNeg);
+           
+        % Take first not endosperm index
+        notEndospermID = find(grainVolumeAligned(tempIndexList) ~= ENDOSPERM_INDEX);
+       
+        if indexList(1) == tempIndexList(1) 
+            
+            if ~isempty(notEndospermID)
+               % Move start point back if possible
+               
+                tempX = [fliplr(tempXNeg(2:(notEndospermID(1)))') tempX']';
+
+                tempY = [fliplr(tempYNeg(2:(notEndospermID(1)))') tempY']';
+
+                tempZ = [fliplr(tempZNeg(2:(notEndospermID(1)))') tempZ']';
+
+                indexList = [fliplr(tempIndexList(2:(notEndospermID(1)))') indexList']';
+
+                voxelDistances = [fliplr(tempDistancesNeg(2:(notEndospermID(1)))') voxelDistances']';
+            else
+                warning('No precceding non-endosperm')
+            end
+        else
+           error('Start indexes do not match') 
+        end
+    end
+    
     lineIDs = grainVolumeAligned(indexList);
 
     voxelSum = cumsum(voxelDistances);
@@ -2003,6 +2021,8 @@ for iPoint = 1:nPoints
                          testInds(end+1) = testInds(end) + 1;
                      end
                     
+                     testInds(testInds > length(lineIDs)) = [];
+                     
                      if all(lineIDs(testInds) == ENDOSPERM_INDEX)
                          % Insert as endosperm points
                          toInsert = [toInsert endospermPoints(endospermSteps(jStep))+1:...
