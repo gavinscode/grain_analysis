@@ -1539,8 +1539,8 @@ grid3D.maxBound = volumeSize';
 % Loop through geodesic distance calculations for each point then put into matrix.
 %parpool('local', 4);
 
-%parfor iPoint = 93:nPoints %
-for iPoint = 93:nPoints
+%parfor iPoint = 1:nPoints %
+for iPoint = 867 ;%1:nPoints
     tic
     % Try using grain exterior volume, can traverese germ, but not curve cut
     % aleuroneExterior 
@@ -1634,35 +1634,6 @@ for iPoint = 93:nPoints
             gotDirection = 0;
         end
         
-        % Test if start point can be shifted back for aleurone
-        % Does not allow any air gap
-        
-        % Goal is to actually shift back to middle of first other point, so
-        % normal will go all the way through 1st point
-        
-        if pointIdentities(jSubscript)
-            [tempX, tempY, tempZ, tempDistances] = amanatideswooalgorithm_efficient(currentSubscript, -tempNormal, grid3D, 0,...
-                [], 10, 1);
-            
-            tempIndexList = sub2ind(volumeSize, tempX, tempY, tempZ);
-
-            % Take first non aleurone index
-            notAleuroneID = find(grainVolumeAligned(tempIndexList) ~= ALEURONE_INDEX);
-            
-            
-            % Move start point back if possible
-            if ~isempty(notAleuroneID)
-                % Calculate distance to step back so halfway into 1st other point
-           
-               startDistBack = sum(tempDistances(1:(notAleuroneID(1)-1))) + ...
-                   tempDistances(notAleuroneID(1))/2;
-            else
-                startDistBack = 0;
-                
-                warning('Could not adjust aleurone back')
-            end
-        end
-        
         % Save normal if direction found
         if gotDirection
             if jSubscript == 1
@@ -1689,25 +1660,42 @@ for iPoint = 93:nPoints
             end
 
             %Draw line in voxel space.
-            [tempX, tempY, tempZ, voxelDistances] = amanatideswooalgorithm_efficient(currentSubscript-startDistBack*tempNormal, ...
+            [tempX, tempY, tempZ, voxelDistances] = amanatideswooalgorithm_efficient(currentSubscript, ...
                 tempNormal, grid3D, 0, [], maxAleuroneThickness, 1);
 
             indexList = sub2ind(volumeSize, tempX, tempY, tempZ);
-
-            % Cut line to aleurone inds (1st should be non-aleurone)
-            aleuroneInds = find(grainVolumeAligned(indexList) == ALEURONE_INDEX);
             
-            if aleuroneInds(1) > 1
-                indexList = indexList(aleuroneInds(1):end);
-                
-                voxelDistances = voxelDistances(aleuroneInds(1):end);
-                
-                tempX = tempX(aleuroneInds(1):end); 
-                tempY = tempY(aleuroneInds(1):end); 
-                tempZ = tempZ(aleuroneInds(1):end);
-                
-%                 currentSubscript
-%                 [tempX(1), tempY(1), tempZ(1)]
+            % Test if start point can be shifted back for aleurone
+            %%% Need to prepend lists otherwise shift in line will occur due to rounding in amanatides 
+            % Does not allow any air gap
+            if pointIdentities(jSubscript)
+                [tempXNeg, tempYNeg, tempZNeg, tempDistancesNeg] = amanatideswooalgorithm_efficient(currentSubscript, -tempNormal, grid3D, 0,...
+                    [], 10, 1);
+
+                tempIndexList = sub2ind(volumeSize, tempXNeg, tempYNeg, tempZNeg);
+
+                % Take first non aleurone index
+                notAleuroneID = find(grainVolumeAligned(tempIndexList) ~= ALEURONE_INDEX);
+
+                if indexList(1) == tempIndexList(1)
+                    if ~isempty(notAleuroneID)
+                       % Move start point back if possible
+                       if notAleuroneID(1) > 2
+                            tempX = [fliplr(tempXNeg(2:(notAleuroneID(1)-1))') tempX']';
+                            
+                            tempY = [fliplr(tempYNeg(2:(notAleuroneID(1)-1))') tempY']';
+                            
+                            tempZ = [fliplr(tempZNeg(2:(notAleuroneID(1)-1))') tempZ']';
+                            
+                            indexList = [fliplr(tempIndexList(2:(notAleuroneID(1)-1))') indexList']';
+                            
+                            voxelDistances = [fliplr(tempDistancesNeg(2:(notAleuroneID(1)-1))') voxelDistances']';
+                    else
+                        warning('No precceding non-aleurone')
+                    end
+                else
+                   error('Start indexes do not match') 
+                end
             end
             
             % Find intersects
@@ -1789,9 +1777,6 @@ for iPoint = 93:nPoints
                [iPoint jSubscript]
                warning('No interior intersect');
             end 
-        else
-           [iPoint jSubscript]
-           warning('Direction could not be determined');
         end
     end
     
@@ -1900,6 +1885,8 @@ for iPoint = 1:nPoints
     else
        % Endosperm, extend in from outer surface 
        startPoint = subscriptsToInterpolate(iPoint,:);
+       
+       error('update to append arrays')
        
        % Note: Need to step back to catch first block
        % Look in reverse along normal and take first non-endosperm
