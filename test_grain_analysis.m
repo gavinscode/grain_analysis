@@ -1859,7 +1859,7 @@ for iPoint = 1:nPoints
     end
 end
 
-save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i_wEndo_distOnFull_voxelFractions_updateSkimming', 'distanceMatrix', ...
+save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i_wEndo_distOnFull_voxelFractions_updateSkimming_splitCalcs', 'distanceMatrix', ...
         edgeDistance, surfaceDistance, sparsePointsDistance, normalRadius), ...
     'edgeDistance', 'surfaceDistance', 'sparsePointsDistance', 'normalRadius',...    
     'distanceMatrix', 'subscriptsToInterpolate', 'interpolatedIdentity',... 
@@ -2645,7 +2645,7 @@ for iBlock = 1:numberOfBlocks
     plot(borderX, borderY, 'g.')
 end
     
-%% Look at intensity correlation between aleurone and thickness layers
+%% Look at intensity correlation between aleurone and depth layers
 figure;
 
 for iBlock = 1:numberOfBlocks
@@ -2654,6 +2654,25 @@ for iBlock = 1:numberOfBlocks
     valuesToSparse = find(~isnan(sparseIntensityProfile(:,iBlock)) & ~isnan(thicknessForSparse));
     
     alIntensity = [averageIntensityByPoint(valuesToUse)' averageIntensityForSparse(valuesToSparse)'];
+    
+    blockIntensity = [pointIntensityProfile(valuesToUse,iBlock)' sparseIntensityProfile(valuesToSparse,iBlock)'];
+    
+    subplot(2,5,iBlock)
+    plot(alIntensity, blockIntensity, '.');
+    
+    rValue = corr(alIntensity, blockIntensity);
+    title(sprintf('%.2f', rValue))
+    
+end
+
+figure;
+
+for iBlock = 1:numberOfBlocks
+    valuesToUse = find(~isnan(pointIntensityProfile(:,iBlock)) & ~isnan(thicknessByPoint));
+
+    valuesToSparse = find(~isnan(sparseIntensityProfile(:,iBlock)) & ~isnan(thicknessForSparse));
+    
+    alThickness = [thicknessByPoint(valuesToUse)' thicknessForSparse(valuesToSparse)'];
     
     blockIntensity = [pointIntensityProfile(valuesToUse,iBlock)' sparseIntensityProfile(valuesToSparse,iBlock)'];
     
