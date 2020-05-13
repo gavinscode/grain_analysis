@@ -901,7 +901,7 @@ curveSubscriptArray(:,2) = curveSubscriptArray(:,2) + yBoundsNew(1) - 1;
 
 curveSubscriptArray(:,3) = curveSubscriptArray(:,3) + zBoundsNew(1) - 1;
 
-tempIndexList = sub2ind(volumeSize, curveSubscriptArray(:,1), curveSubscriptArray(:,2), curveSubscriptArray(:,3));
+curveIndexList = sub2ind(volumeSize, curveSubscriptArray(:,1), curveSubscriptArray(:,2), curveSubscriptArray(:,3));
 
 grainCutVolume = zeros(volumeSize, 'logical');
 
@@ -939,8 +939,8 @@ aleuroneInterior = logical(aleuroneInterior);
 % Exterior is outer volume, and grow into other volume.
 aleuroneInterior = imdilate(aleuroneInterior, STREL_18_CONNECTED);
 
-aleuroneInterior = (grainVolumeAligned == ALEURONE_INDEX) & aleuroneInterior & ...
-    ~grainExterior;
+% Previously check interior didn't overlap exterior, however, causes problems for thin aleurone where voxels may have both IDs
+aleuroneInterior = (grainVolumeAligned == ALEURONE_INDEX) & aleuroneInterior;
 
 % Get aleurone interior surface subscripts.
 aleuroneInteriorIndexList = find(aleuroneInterior);
@@ -1239,7 +1239,7 @@ nIndex = length(combinedEdgeIndexList); combinedEdgeSubscriptArray = zeros(nInde
 
 creaseAleuroneInds = find(endospermCreaseExteriorBorder(combinedEdgeIndexList));
 
-clear combinedExterior, clear combinedEdge, 
+clear combinedExterior, clear combinedEdge, clear grainCutVolume
 
 %% Calculate surface area of aleurone exterior and interior
 %https://se.mathworks.com/matlabcentral/answers/93023-is-there-a-matlab-function-that-can-compute-the-area-of-my-patch
@@ -1494,26 +1494,7 @@ distanceMatrix = zeros(nPoints, nPoints, 'single')*NaN;
 
 distanceMatrixSparse = zeros(nPoints, nSparsePoints, 'single')*NaN;
 
-whos distanceMatrixSparse
-
-normalByPoint = zeros(nPoints, 3)*NaN; normalForSparseCell = cell(nPoints, 1);  
-
-internalIntersectByPoint = zeros(nPoints, 3)*NaN; internalIntersectForSparseCell = cell(nPoints, 1);
-
-% Intenstiy and thickness may not be very useful for points on edge.
-
-thicknessByPoint = zeros(nPoints, 1)*NaN; thicknessForSparseCell = cell(nPoints, 1); 
-
-averageIntensityByPoint = zeros(nPoints, 1)*NaN; averageIntensityForSparseCell = cell(nPoints, 1);
-
 indexsToUseByPoint = cell(nPoints,1);
-
-% Set up for normal calculation
-normalRadius = 50;
-
-grid3D.nx = volumeSize(1); grid3D.ny = volumeSize(2); grid3D.nz = volumeSize(3);
-grid3D.minBound = [1 1 1]';
-grid3D.maxBound = volumeSize';
 
 % Loop through geodesic distance calculations for each point then put into matrix.
 
@@ -1534,7 +1515,11 @@ parfor iPoint = 1:nPoints %
     indexsToUseByPoint{iPoint} = find(dMap(totalIndexList) < normalRadius*2);
     
 end
-    
+  
+save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_temp', 'distanceMatrix'), ...
+    'edgeDistance', 'surfaceDistance', 'sparsePointsDistance', 'normalRadius',...    
+    'distanceMatrix', 'distanceMatrixSparse', 'indexsToUseByPoint', '-v7.3');
+
 %% Calculate normals and thicknesses
 % Find sparse points associated with each main point, these will be referenced for calculating normals.
 %%% Note this has to be done using distances from map, if done using 3D
@@ -1555,9 +1540,33 @@ for iPoint = 1:nSparsePoints
     pointToSparseLinks{closestPointIndex} = temp;
 end
 
+normalByPoint = zeros(nPoints, 3)*NaN; normalForSparseCell = cell(nPoints, 1);  
+
+internalIntersectByPoint = zeros(nPoints, 3)*NaN; internalIntersectForSparseCell = cell(nPoints, 1);
+
+% Intenstiy and thickness may not be very useful for points on edge.
+
+thicknessByPoint = zeros(nPoints, 1)*NaN; thicknessForSparseCell = cell(nPoints, 1); 
+
+averageIntensityByPoint = zeros(nPoints, 1)*NaN; averageIntensityForSparseCell = cell(nPoints, 1);
+
+% Set up for normal calculation
+normalRadius = 50;
+
+grid3D.nx = volumeSize(1); grid3D.ny = volumeSize(2); grid3D.nz = volumeSize(3);
+grid3D.minBound = [1 1 1]';
+grid3D.maxBound = volumeSize';
+
+% Cut label volume so normals see seperated sides
+    % Can cause problems with normal picking or step back if not
+    % Note that no test points should be on cut as they come from grain exterior
+grainVolumeAlignedCut = grainVolumeAligned;
+
+grainVolumeAlignedCut(curveIndexList) = 0;
+
 % Calculate normals to get thickness
-parfor iPoint = 1:nPoints %
-%for iPoint = 1241; %1:nPoints
+%parfor iPoint = 1:nPoints %
+for iPoint = 1768:nPoints
     % Make list with this location and sparse points
     sparseLinks = pointToSparseLinks{iPoint};
     
@@ -1585,8 +1594,7 @@ parfor iPoint = 1:nPoints %
         
         % Check that target is included in patch to calculate
         if ~any(indsToCalculate(jSubscript) == totalIndexList(indexListInRange))
-            [iPoint jSubscript]
-            error('Target point not in patch')
+            error('%i %i - Target point not in patch', iPoint, jSubscript)
         end
             
         tempNormal = normaltosurface(currentSubscript , ...
@@ -1598,22 +1606,25 @@ parfor iPoint = 1:nPoints %
         [tempX, tempY, tempZ, forwardDistance] = amanatideswooalgorithm_efficient(currentSubscript, tempNormal, grid3D, 0,...
             [], depth, 1);
         
+        % Tightest gap is likely to be on crease cut by curve (~1 pixels)
         forwardIndexList = sub2ind(volumeSize, tempX, tempY, tempZ);
          
-        forwardSum = cumsum((grainVolumeAligned(forwardIndexList) == 0 ) .* forwardDistance);
+        forwardSum = cumsum((grainVolumeAlignedCut(forwardIndexList) == 0 ) .* forwardDistance);
         
-        forwardAirIndex = find(forwardSum > 1);
+        forwardAirIndex = find(forwardSum > 0.5);
         
         [tempX, tempY, tempZ, backwardDistance] = amanatideswooalgorithm_efficient(currentSubscript, -tempNormal, grid3D, 0,...
             [], depth, 1);
         
         backwardIndexList = sub2ind(volumeSize, tempX, tempY, tempZ);
         
-        backwardSum = cumsum((grainVolumeAligned(backwardIndexList) == 0 ) .* backwardDistance);
+        backwardSum = cumsum((grainVolumeAlignedCut(backwardIndexList) == 0 ) .* backwardDistance);
 
-        backwardAirIndex = find(backwardSum > 1);
+        backwardAirIndex = find(backwardSum > 0.5);
         
-        % [grainVolumeAligned(forwardIndexList(1:depth)) grainVolumeAligned(backwardIndexList(1:depth))]
+        % [grainVolumeAlignedCut(forwardIndexList(1:depth)) grainVolumeAlignedCut(backwardIndexList(1:depth))]
+        
+        gotDirection = 0;
         
         % Pick direction based on indexes
         if isempty(forwardAirIndex) & ~isempty(backwardAirIndex)
@@ -1626,20 +1637,21 @@ parfor iPoint = 1:nPoints %
         elseif ~isempty(forwardAirIndex) & ~isempty(backwardAirIndex)
             %Find length of non-air inds after 1st 2 (at end of list, after 1st air point).
             
-            [iPoint jSubscript]
-            display('Test this point')
+            %warning('%i %i - Test this point', iPoint, jSubscript)
             
             forwardIndexList = forwardIndexList(forwardAirIndex(1):end);  
             
-            forwardEndSum = sum((grainVolumeAligned(forwardIndexList) > 0) .* ...
+            forwardEndSum = sum((grainVolumeAlignedCut(forwardIndexList) > 0) .* ...
                 forwardDistance(forwardAirIndex(1):end));
             
             backwardIndexList = backwardIndexList(backwardAirIndex(1):end);
             
-            backwardEndSum = sum((grainVolumeAligned(backwardIndexList) > 0) .* ...
+            backwardEndSum = sum((grainVolumeAlignedCut(backwardIndexList) > 0) .* ...
                 backwardDistance(backwardAirIndex(1):end));
             
-            % Hoping for a clear distinction, other wise just give a warning
+            % Correct if there is a clear direction
+            % Note, this will mostly likely get discarded in intersection
+            % and intergral test, but aim here is to get correct direction
             if forwardEndSum > 4*backwardEndSum
                 gotDirection = 1;
                 
@@ -1648,18 +1660,19 @@ parfor iPoint = 1:nPoints %
             
                 tempNormal = -tempNormal;
             else
-                [iPoint jSubscript]
-                warning('No clear direction -  air inds on both sides')
+                % Should not occur, indicates exterior is kind outside
+                
+                warning('%i %i - No clear direction - some air inds on both sides', iPoint, jSubscript)
 
                 gotDirection = 0;
             end
-            %Note, this will mostly likely get discarded in intersection
-            %and intergral test, but aim here is to get correct direction
+            %
             
         elseif isempty(forwardAirIndex) & isempty(backwardAirIndex)
             % Direction is not clear, so skip
-            [iPoint jSubscript]
-            warning('No clear direction - no air inds')
+            %%% Should not occur, indicates exterior is kind of inside main body
+            
+            warning('%i %i - No clear direction - no air inds', iPoint, jSubscript)
             
             gotDirection = 0;
         end
@@ -1684,16 +1697,29 @@ parfor iPoint = 1:nPoints %
                 else
                     lineColor = 'r';
                 end
-                line([0 tempNormal(1)*200]+currentSubscript(1),...
-                    [0 tempNormal(2)*200]+currentSubscript(2), ...
-                    [0 tempNormal(3)*200]+currentSubscript(3), 'color', lineColor)
+%                 figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
+%                 plot3(combinedSurfaceSubscripts(surfacePointsChoosen,1), combinedSurfaceSubscripts(surfacePointsChoosen,2), ...
+%                     combinedSurfaceSubscripts(surfacePointsChoosen,3), 'gx')
+% % 
+%                 plot3(combinedEdgeSubscriptArray(edgePointsChoosen,1), combinedEdgeSubscriptArray(edgePointsChoosen,2), ...
+%                     combinedEdgeSubscriptArray(edgePointsChoosen,3), 'ro')
+%                 
+%                 plot3(combinedSurfaceSubscripts(indexListInRange,1), combinedSurfaceSubscripts(indexListInRange,2),...
+%                     combinedSurfaceSubscripts(indexListInRange,3), '.')
+% % 
+%                  plot3(currentSubscript(1), currentSubscript(2), currentSubscript(2), 'c*')
+% %                 
+%                 line([0 tempNormal(1)*200]+currentSubscript(1),...
+%                     [0 tempNormal(2)*200]+currentSubscript(2), ...
+%                     [0 tempNormal(3)*200]+currentSubscript(3), 'color', 'r')
+
                 
-%                 figure; imshow(grainVolumeAligned(:,:,currentSubscript(3))*100)
+%                 figure; imshow(grainVolumeAlignedCut(:,:,currentSubscript(3))*100)
 %                 hold on
 %                 
 %                 line( [0 tempNormal(2)*200]+currentSubscript(2),  ...
 %                     [0 tempNormal(1)*200]+currentSubscript(1),...
-%                         'color', lineColor)
+%                         'color', 'r')
 %                     
 %                 plot(currentSubscript(2), currentSubscript(1) , 'c*')
 % 
@@ -1716,11 +1742,11 @@ parfor iPoint = 1:nPoints %
             tempIndexList = sub2ind(volumeSize, tempXNeg, tempYNeg, tempZNeg);
 
             % Take first non aleurone index
-            notAleuroneID = find(grainVolumeAligned(tempIndexList) ~= ALEURONE_INDEX);
+            notAleuroneID = find(grainVolumeAlignedCut(tempIndexList) ~= ALEURONE_INDEX);
 
             if indexList(1) == tempIndexList(1)
                 if ~isempty(notAleuroneID)
-                   % Move start point back if possible
+                   % Move start point back if possible, usual is 2
                    if notAleuroneID(1) > 2
                         tempX = [fliplr(tempXNeg(2:(notAleuroneID(1)-1))') tempX']';
 
@@ -1733,17 +1759,15 @@ parfor iPoint = 1:nPoints %
                         voxelDistances = [fliplr(tempDistancesNeg(2:(notAleuroneID(1)-1))') voxelDistances']';
                    end
                 else
-                    [iPoint jSubscript]
-                    warning('No precceding non-aleurone')
+                    error('%i %i - No precceding non-aleurone', iPoint, jSubscript)
                 end
             else
-               [iPoint jSubscript]
-               error('Start indexes do not match') 
+               error('%i %i - Start indexes do not match', iPoint, jSubscript) 
             end
             
             % Find intersects
             % Using interior intersects some extra skimming problems
-            lineIDs = grainVolumeAligned(indexList);
+            lineIDs = grainVolumeAlignedCut(indexList);
             
             interiorList = aleuroneInterior(indexList);
             
@@ -1751,11 +1775,57 @@ parfor iPoint = 1:nPoints %
 
             %[lineIDs(1:50) interiorList(1:50)]
             
-            %%% Simple test, could also check that grain exterior is not reencountered before interior, 
-            %%% but need to make sure it's not same exeterior as start point  
+            % Test there is an intersect
             if isempty(interiorPoints)
-               [iPoint jSubscript]
-               error('Missed interior - Max depth insufficient?') 
+                if any(lineIDs == ENDOSPERM_INDEX) 
+                   % This should not really occur...
+                   
+                   % For now, just add an interior intersect on al voxel before first endosperm
+                   endospermInds = find(lineIDs == ENDOSPERM_INDEX);
+                   
+                   endospermInds = endospermInds(1);
+                   
+                   % Check voxel before is aleurone
+                   if lineIDs(endospermInds - 1) == ALEURONE_INDEX
+                       % If so, add in as (only interior intersect)
+                       interiorPoints = endospermInds - 1;
+                       
+                       interiorList(interiorPoints) = 1;
+                       
+                       warning('%i %i - Added missing interior', iPoint, jSubscript)
+                   else
+                       error('%i %i - Hit endosperm without interior intersect', iPoint, jSubscript)
+                   end
+               else
+                   % This should never occur 
+                   error('%i %i - Not interior intersect or endosperm hit', iPoint, jSubscript) 
+                end
+            end
+            
+            intersectsCleared = 0;
+            
+            % Check other things do not occur before first interect
+            if ~isempty(interiorPoints)
+                if any(lineIDs(1:interiorPoints(1)) ~= ALEURONE_INDEX)
+                    % Can sometimes be small pockets of air, test as in following section
+                    if all((lineIDs(1:interiorPoints(1)) == ALEURONE_INDEX) | ...
+                            (lineIDs(1:interiorPoints(1)) == 0))
+                        % Test total lenth of air pockets
+                        testInds = find(lineIDs(1:interiorPoints(1)) == 0);
+                        
+                        % If greater than threshold, have to do something
+                        if sum(voxelDistances(testInds)) > blockThickness/2
+                           % Could change intersect, but arguable if it should be before or after air, so just remove.
+                           interiorPoints = [];
+                           
+                           intersectsCleared = 1;
+                           
+                           warning('%i %i - Too much air before', iPoint, jSubscript) 
+                        end    
+                    else
+                        error('%i %i - Unexpected materials before intersect', iPoint, jSubscript)
+                    end
+                end
             end
             
             %Find breaks in interior intersects
@@ -1820,8 +1890,10 @@ parfor iPoint = 1:nPoints %
                 end
                 
             else
-               [iPoint jSubscript]
-               warning('No interior intersect');
+               if ~intersectsCleared
+                    % Almost all cases of this resolved by allowing interior to overlap exterior on thin al 
+                    warning('%i %i - No interior intersect', iPoint, jSubscript);
+               end
             end 
         end
     end
@@ -1942,7 +2014,7 @@ for iPoint = 1:(nPoints + nSparsePoints)
                 if any(isnan(startPoint))
                     warning('Intersect point missing')
 
-                    %More start to top of aleurone, should be ok
+                    %Move start to top of aleurone, should be ok
                     startPoint = subscriptsForSparse(iPoint-nPoints,:);
 
                     startAdjusted = 1;
@@ -1969,7 +2041,7 @@ for iPoint = 1:(nPoints + nSparsePoints)
             tempIndexList = sub2ind(volumeSize, tempXNeg, tempYNeg, tempZNeg);
 
             % Take first not endosperm index
-            notEndospermID = find(grainVolumeAligned(tempIndexList) ~= ENDOSPERM_INDEX);
+            notEndospermID = find(grainVolumeAlignedCut(tempIndexList) ~= ENDOSPERM_INDEX);
 
             if indexList(1) == tempIndexList(1) 
 
@@ -1993,7 +2065,7 @@ for iPoint = 1:(nPoints + nSparsePoints)
             end
         end
 
-        lineIDs = grainVolumeAligned(indexList);
+        lineIDs = grainVolumeAlignedCut(indexList);
 
         voxelSum = cumsum(voxelDistances);
 
@@ -2112,6 +2184,8 @@ for iPoint = 1:(nPoints + nSparsePoints)
 
             voxelSum = cumsum(voxelDistances);
 
+            error('Indicate germ, al, air inclusions in depth profile')
+            
             % Need at least one full block included
             if sum(voxelDistances) > blockThickness
 
@@ -2616,6 +2690,8 @@ rValue = corr([thicknessByPoint(valuesToUse)' thicknessForSparse(valuesToSparse)
 title(sprintf('%.2f', rValue))
 %% Calculate and display intensity depth maps
 figure; imshow(intensityImage')
+
+error('Create single 3D interpolant and block on inclusions')
 
 figure;
 

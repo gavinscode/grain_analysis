@@ -5,7 +5,7 @@ function [normal] = normaltosurface( pointCoords, surface, referenceCenter, flip
 
     % As in bee code, however, radius adjust from levels sets and height req. removed.
 
-    debugPlot = 1;
+    debugPlot = 0;
     
     if isempty(includeRange)
         includeRange = 50;   % A bit arbitary...
