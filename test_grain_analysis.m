@@ -1566,7 +1566,7 @@ grainVolumeAlignedCut(curveIndexList) = 0;
 
 % Calculate normals to get thickness
 %parfor iPoint = 1:nPoints %
-for iPoint = 1768:nPoints
+for iPoint = 1154; 1261:nPoints
     % Make list with this location and sparse points
     sparseLinks = pointToSparseLinks{iPoint};
     
@@ -1637,16 +1637,12 @@ for iPoint = 1768:nPoints
         elseif ~isempty(forwardAirIndex) & ~isempty(backwardAirIndex)
             %Find length of non-air inds after 1st 2 (at end of list, after 1st air point).
             
-            %warning('%i %i - Test this point', iPoint, jSubscript)
+            %warning('%i %i - Test this point', iPoint, jSubscript)  
             
-            forwardIndexList = forwardIndexList(forwardAirIndex(1):end);  
-            
-            forwardEndSum = sum((grainVolumeAlignedCut(forwardIndexList) > 0) .* ...
+            forwardEndSum = sum((grainVolumeAlignedCut(forwardIndexList(forwardAirIndex(1):end)) > 0) .* ...
                 forwardDistance(forwardAirIndex(1):end));
             
-            backwardIndexList = backwardIndexList(backwardAirIndex(1):end);
-            
-            backwardEndSum = sum((grainVolumeAlignedCut(backwardIndexList) > 0) .* ...
+            backwardEndSum = sum((grainVolumeAlignedCut(backwardIndexList(backwardAirIndex(1):end)) > 0) .* ...
                 backwardDistance(backwardAirIndex(1):end));
             
             % Correct if there is a clear direction
@@ -1660,7 +1656,7 @@ for iPoint = 1768:nPoints
             
                 tempNormal = -tempNormal;
             else
-                % Should not occur, indicates exterior is kind outside
+                % Cannot determine correct normal direction from this info
                 
                 warning('%i %i - No clear direction - some air inds on both sides', iPoint, jSubscript)
 
@@ -1669,8 +1665,11 @@ for iPoint = 1768:nPoints
             %
             
         elseif isempty(forwardAirIndex) & isempty(backwardAirIndex)
-            % Direction is not clear, so skip
-            %%% Should not occur, indicates exterior is kind of inside main body
+            % Direction is not clear, and normal is not very meaningfull
+            
+            % Can occur if exerior is kind of indented and remainder of
+                % surface pulls normal so it has not air intersect
+            % Most likely to occur on edge points
             
             warning('%i %i - No clear direction - no air inds', iPoint, jSubscript)
             
