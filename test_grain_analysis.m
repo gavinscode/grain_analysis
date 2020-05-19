@@ -840,16 +840,14 @@ curveIndexList = sub2ind(volumeSize, curveSubscriptArray(:,1), curveSubscriptArr
     curveSubscriptArray(:,3));
 
 % Cut label volume along base curve
-grainVolumeAlignedCut = grainVolumeAligned;
-
-grainVolumeAlignedCut(curveIndexList) = 0;
+grainVolumeAligned(curveIndexList) = 0;
 
 % Recalculate exterior - if not, won't be closed along cut crease al 
-grainExterior = logical(~grainVolumeAlignedCut);
+grainExterior = logical(~grainVolumeAligned);
 
 grainExterior = imdilate(grainExterior, STREL_18_CONNECTED);
 
-grainExterior = grainExterior & grainVolumeAlignedCut;
+grainExterior = grainExterior & grainVolumeAligned;
 
 tempCC = bwconncomp(grainExterior, 18);
 
@@ -899,7 +897,7 @@ for iSlice = 1:volumeSize(3)
         
         for jIndex = 1:length(maxIndexList)
             % Get values in grain and edge volumes.
-            volumeColumn = grainVolumeAlignedCut(tempSubscriptArray(maxIndexList(jIndex),1), ...
+            volumeColumn = grainVolumeAligned(tempSubscriptArray(maxIndexList(jIndex),1), ...
                 (tempSubscriptArray(maxIndexList(jIndex),2)+1):end, iSlice);
 
             exteriorColumn = grainExterior(tempSubscriptArray(maxIndexList(jIndex),1), ...
@@ -950,7 +948,7 @@ topCurveInds = find(centreCurveVolume(curveIndexList) == 2);
 
 endCurveInds = find(centreCurveVolume(curveIndexList) == 3);
 
-mainInVolInds = find(grainVolumeAlignedCut(curveIndexList));
+mainInVolInds = find(grainVolumeAligned(curveIndexList));
 
 clear smallGrainExterior, clear smallGrainVolume, 
 clear loopVolume, clear centreCurveVolume
@@ -982,18 +980,28 @@ plot3(loopSubscriptArray(:,1), loopSubscriptArray(:,2),...
 %% Remove cut up from both exterior and main volume
 
 %Just remove from volume where it overlap exterior
-grainVolumeAlignedCut(grainExterior(curveIndexList(topCurveInds))) = 0;
+grainVolumeAlignedCut = grainVolumeAligned;
 
-grainVolumeAlignedCut(grainExterior(curveIndexList(endCurveInds))) = 0;
+tempIndsTop = find(grainExterior(curveIndexList(topCurveInds)) == 1);
+grainVolumeAlignedCut(curveIndexList(topCurveInds(tempIndsTop))) = 0;
 
-grainExterior(curveIndexList(topCurveInds)) = 0;
+tempIndsEnd = find(grainExterior(curveIndexList(endCurveInds)) == 1);
+grainVolumeAlignedCut(curveIndexList(endCurveInds(tempIndsEnd))) = 0;
 
-grainExterior(curveIndexList(endCurveInds)) = 0;
+curveCutVolume = zeros(volumeSize, 'logical');
+
+curveCutVolume(curveIndexList(topCurveInds(tempIndsTop))) = 1;
+
+curveCutVolume(curveIndexList(endCurveInds(tempIndsEnd))) = 1;
+
+grainExterior(curveIndexList(topCurveInds(tempIndsTop))) = 0;
+
+grainExterior(curveIndexList(endCurveInds(tempIndsEnd))) = 0;
 
 figure; imshow(sum(grainExterior(:,:,1623),3))
 
 %% Get surface of aleurone.
-aleuroneExterior = grainExterior & (grainVolumeAlignedCut == ALEURONE_INDEX);
+aleuroneExterior = grainExterior & (grainVolumeAligned == ALEURONE_INDEX);
 
 % Get index list
 aleuroneSurfaceIndexList = find(aleuroneExterior);
@@ -1029,7 +1037,8 @@ nIndex = length(aleuroneInteriorIndexList); aleuroneInteriorSubscriptArray = zer
 
 %% Get germ surfaces
 % Take largest region for germ.
-germExterior = (grainExterior | (grainCutVolume > 0))  & (grainVolumeAligned == GERM_INDEX);
+%%% Shifted to using cut volume
+germExterior = (grainExterior | curveCutVolume)  & (grainVolumeAligned == GERM_INDEX);
 
 % Take largest connected region of surface.
 tempCC = bwconncomp(germExterior, 26);
@@ -1060,7 +1069,7 @@ nIndex = length(germSurfaceIndexList); germSurfaceSubscriptArray = zeros(nIndex,
 
 clear germExterior
 %% Get exterior endosperm surface except for crease
-endospermExterior = grainExterior & (grainVolumeAlignedCut == ENDOSPERM_INDEX);
+endospermExterior = grainExterior & (grainVolumeAligned == ENDOSPERM_INDEX);
 
 % Take tips of aleurone points.
 curveCentre = mean(curveSubscriptArray(:,1));
@@ -1250,7 +1259,7 @@ for iRegion = 1:nRegions-1
         % Get values.
         tempIndex = tempStats(iRegion).PixelIdxList(jIndex);
         
-        value = grainVolumeAlignedCut(tempIndex);
+        value = grainVolumeAligned(tempIndex);
         
         %Delete from appropriate volume and record for list
         if value == ENDOSPERM_INDEX
@@ -1283,7 +1292,8 @@ aleuroneSurfaceIndexList(aleuroneToRemove) = [];
 aleuroneSurfaceSubscriptArray(aleuroneToRemove,:) = [];
 
 %% Calculate edge of combined surface.
-combinedEdge = imdilate((grainExterior | grainCutVolume) & ~combinedExterior, STREL_18_CONNECTED);
+%%% Changed to cut volume
+combinedEdge = imdilate((grainExterior | curveCutVolume) & ~combinedExterior, STREL_18_CONNECTED);
 
 combinedEdge = combinedEdge & combinedExterior;
 
@@ -1316,7 +1326,7 @@ nIndex = length(combinedEdgeIndexList); combinedEdgeSubscriptArray = zeros(nInde
 
 creaseAleuroneInds = find(endospermCreaseExteriorBorder(combinedEdgeIndexList));
 
-clear combinedExterior, clear combinedEdge, clear grainCutVolume
+clear combinedExterior, clear combinedEdge, %clear curveCutVolume
 
 %% Calculate surface area of aleurone exterior and interior
 %https://se.mathworks.com/matlabcentral/answers/93023-is-there-a-matlab-function-that-can-compute-the-area-of-my-patch
@@ -1422,6 +1432,8 @@ end
 toc
 
 edgePointsChoosen = find(edgePointsChoosen); 
+
+[~, creasePointsInEdge] = intersect(edgePointsChoosen, creaseAleuroneInds);
 
 % Select surface points from remaining, again going down Z
 tic
@@ -1619,8 +1631,8 @@ grid3D.minBound = [1 1 1]';
 grid3D.maxBound = volumeSize';
 
 % Calculate normals to get thickness
-%parfor iPoint = 1:nPoints %
-for iPoint = 1761:nPoints
+parfor iPoint = 1:nPoints %
+%for iPoint = 1761:nPoints
     % Make list with this location and sparse points
     sparseLinks = pointToSparseLinks{iPoint};
     
@@ -2511,6 +2523,9 @@ plot(pointsUnwrapped(surfaceIndexList,1), pointsUnwrapped(surfaceIndexList,2), '
 
 plot(pointsUnwrapped(edgeIndexList,1), pointsUnwrapped(edgeIndexList,2), 'ro');
 
+plot(pointsUnwrapped(edgeIndexList(creasePointsInEdge),1), ...
+    pointsUnwrapped(edgeIndexList(creasePointsInEdge),2), 'm*'); 
+
 plot(pointsUnwrapped((indexAbove),1), pointsUnwrapped((indexAbove),2), 'gd');
 
 plot(pointsUnwrapped((indexBelow),1), pointsUnwrapped((indexBelow),2), 'cd');
@@ -2520,7 +2535,6 @@ plot(pointsUnwrapped((indexBelow),1), pointsUnwrapped((indexBelow),2), 'cd');
 % Firstly create closed loop, similar problem as bee FOV
 % Just based on angles to start with, can add TSP for more complicated shapes
 sortedEdgeSubscripts = pointsUnwrapped(edgeIndexList, :); 
-%createSortedLoopwithTSP(targetSubscripts(edgeIndexList, [1 3]));
 
 % Mirror or claculations on full set of subscripts so they match sorted egde.
 offSetFullSubscripts = pointsUnwrapped(:, :);
@@ -2540,22 +2554,42 @@ sortedEdgeSubscripts(:,1) = sortedEdgeSubscripts(:,1) - mean(sortedEdgeSubscript
 sortedEdgeSubscripts(:,2) = sortedEdgeSubscripts(:,2) - mean(sortedEdgeSubscripts(:,2));
 
 % Take sort edge list based on angle around origin 
-% Sequential angle sorting, fails on loop backs
-% angles = atan2(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2));
+    % Sequential angle sorting, fails on loop backs
+    % Need to do before TSP other wise that can't cope
+angles = atan2(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2));
         
-% [~,  edgeIndexListSorted] = sort(angles);
+[~,  tempIndex] = sort(angles);
 
 % Shortest path solution, works really well!
-[~, edgeIndexListSorted] = createSortedLoopwithTSP(double(sortedEdgeSubscripts));
+[~, edgeIndexListSorted] = createSortedLoopwithTSP(double(sortedEdgeSubscripts(tempIndex,:)));
 
 % Add first point at end to close.
-edgeIndexListSorted = [edgeIndexListSorted' edgeIndexListSorted(1)];
+edgeIndexListSorted = tempIndex([edgeIndexListSorted' edgeIndexListSorted(1)]);
 
 sortedEdgeSubscripts = sortedEdgeSubscripts(edgeIndexListSorted, :);
+
+% Transform crease flag as well.
+tempSortedIndex = zeros(length(edgeIndexListSorted),1);
+
+tempSortedIndex(creasePointsInEdge) = 1;
+
+tempSortedIndex = find(tempSortedIndex(edgeIndexListSorted));
+
+sortedIndexLeft = find(sortedEdgeSubscripts(tempSortedIndex,1) < 0);
+
+sortedIndexLeft = tempSortedIndex(sortedIndexLeft);
+
+sortedIndexRight = find(sortedEdgeSubscripts(tempSortedIndex,1) > 0);
+
+sortedIndexRight = tempSortedIndex(sortedIndexRight);
 
 figure; hold on;
 
 plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2))
+
+plot(sortedEdgeSubscripts(sortedIndexLeft,1), sortedEdgeSubscripts(sortedIndexLeft,2), 'bx-')
+
+plot(sortedEdgeSubscripts(sortedIndexRight,1), sortedEdgeSubscripts(sortedIndexRight,2), 'rx-')
 
 % Create 2D map for plotting.
 xRange = ceil(max(sortedEdgeSubscripts(:,1)) - min(sortedEdgeSubscripts(:,1)) + 10);
@@ -2613,13 +2647,15 @@ inMap = find(image2Plot(:));
 % Plot to test
 figure; imshow(image2Plot'); hold on;
 
-plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2), 'b')
+plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2), 'b', 'linewidth', 2)
 
-plot(offSetFullSubscripts(:,1), offSetFullSubscripts(:,2), 'rx')
+plot(sortedEdgeSubscripts(sortedIndexLeft,1), sortedEdgeSubscripts(sortedIndexLeft,2), 'm*-')
 
-plot(offSetSparseSubscripts(:,1), offSetSparseSubscripts(:,2), 'g.')
+plot(sortedEdgeSubscripts(sortedIndexRight,1), sortedEdgeSubscripts(sortedIndexRight,2), 'm*-');
 
-warning('Indicate crease edge')
+plot(offSetFullSubscripts(:,1), offSetFullSubscripts(:,2), 'r.')
+
+%plot(offSetSparseSubscripts(:,1), offSetSparseSubscripts(:,2), 'g.')
 
 %% Get voxels ID for aleurone and endosperm
 
@@ -2677,7 +2713,8 @@ warning('Get full border from image as for endopserm intersect')
 %figure; subplot(1,2,1); hist(thicknessByPoint,100)
 %subplot(1,2,2); hist(averageIntensityByPoint,100)
 
-warning('add voxel size to thickness scaling')
+warning('Make histogram of base values for all')
+
 valuesToUse = find(~isnan(thicknessByPoint));
 
 valuesToSparse = find(~isnan(thicknessForSparse));
@@ -2699,9 +2736,7 @@ warning('Colour range setting is not automated')
 
 [max(thicknessByPoint) max(thicknessForSparse)]
 
-%thicknessImage = (thicknessImage-2*VOXEL_SIZE)/(18*VOXEL_SIZE-2*VOXEL_SIZE);
-warning('Change thicknes scaling')
-thicknessImage = (thicknessImage-2)/(18-2);
+thicknessImage = (thicknessImage-0)/(120-0);
 
 endoImage = zeros(xRange , yRange);
 
@@ -2715,7 +2750,7 @@ cols(1:100,1) = (1:100)/100;
 figure; 
 imshow(permute(thicknessImage, [2 1 3]))
 colormap(cols)
-title('Thickness'); hcb = colorbar; set(hcb,'Ticks', [0 0.5 1], 'TickLabels', {'8','40','72'})
+title('Thickness'); hcb = colorbar; set(hcb,'Ticks', [0 0.5 1], 'TickLabels', {'0','60','120'})
 
 hold on
 plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2), 'w.')
@@ -2740,7 +2775,7 @@ intensityImage = tempImage;
 [max(averageIntensityByPoint) max(averageIntensityForSparse)]
 [min(averageIntensityByPoint) min(averageIntensityForSparse)]
 
-intensityImage = (intensityImage-50)/(250-50);
+intensityImage = (intensityImage-100)/(200-100);
 
 %intensityImage(:,:,2) = endoImage;
 
@@ -2750,7 +2785,7 @@ cols(1:100,3) = (1:100)/100;
 figure;
 imshow(permute(intensityImage, [2 1 3]))
 colormap(cols)
-title('Intensity'); hcb = colorbar; set(hcb,'Ticks', [0 0.5 1], 'TickLabels', {'50','150','250'})
+title('Intensity'); hcb = colorbar; set(hcb,'Ticks', [0 0.5 1], 'TickLabels', {'100','150','200'})
 
 hold on
 plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2), 'w.')

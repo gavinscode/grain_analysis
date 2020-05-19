@@ -157,7 +157,7 @@ function [coordinateListSorted, indexSorted] = createSortedLoopwithTSP(coordinat
     end
         
     if size(unique(coordinateListSorted,'rows'),1) ~= length(segments)
-        warning('problem with line sorter');
+        error('problem with line sorter');
     end
 %         figure;
 %         plot3(coordinateListSorted(:,1), coordinateListSorted(:,2));
