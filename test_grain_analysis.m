@@ -2150,7 +2150,7 @@ for iPoint = 1:(nPoints + nSparsePoints)
                     for kMat = 1:4
                         tempIDProfile(jBlock, kMat) = sum(...
                             distanceSet(lineIDsTemp(blockSet) == ...
-                            kMat - 1));
+                            (kMat - 1) ));
                     end
                 end
 
@@ -2662,7 +2662,7 @@ plot(offSetFullSubscripts(:,1), offSetFullSubscripts(:,2), 'r.')
 IDInterpolant = scatteredInterpolant( double([offSetFullSubscripts(:,1)' offSetSparseSubscripts(:,1)']'), ...
     double([offSetFullSubscripts(:,2)' offSetSparseSubscripts(:,2)']'),...
     [interpolatedIdentity' sparseIdentity']',...
-    'nearest','none');
+    'nearest','nearest');
 
 % Interpolate into map - keep unit8 to force integers
 IDImage = zeros(xRange , yRange, 'uint8');
@@ -2713,16 +2713,35 @@ warning('Get full border from image as for endopserm intersect')
 %figure; subplot(1,2,1); hist(thicknessByPoint,100)
 %subplot(1,2,2); hist(averageIntensityByPoint,100)
 
-warning('Make histogram of base values for all')
-
 valuesToUse = find(~isnan(thicknessByPoint));
 
 valuesToSparse = find(~isnan(thicknessForSparse));
 
+
+figure; 
+subplot(1,3,1);
+hist([thicknessByPoint(valuesToUse)' thicknessForSparse(valuesToSparse)']',100);
+xlabel('Thickness')
+
+subplot(1,3,2);
+hist([averageIntensityByPoint(valuesToUse)' averageIntensityForSparse(valuesToSparse)']',100);
+xlabel('Intensity')
+
+subplot(1,3,3);
+plot([thicknessByPoint(valuesToUse)' thicknessForSparse(valuesToSparse)']', ...
+    [averageIntensityByPoint(valuesToUse)' averageIntensityForSparse(valuesToSparse)']', '.');
+
+rValue = corr([thicknessByPoint(valuesToUse)' thicknessForSparse(valuesToSparse)']', ...
+    [averageIntensityByPoint(valuesToUse)' averageIntensityForSparse(valuesToSparse)']');
+
+title(sprintf('%.2f', rValue))
+xlabel('Thickness'); ylabel('Intensity');
+
+
 thicknessInterpolant = scatteredInterpolant( double([offSetFullSubscripts(valuesToUse,1)' offSetSparseSubscripts(valuesToSparse,1)']'), ...
     double([offSetFullSubscripts(valuesToUse,2)' offSetSparseSubscripts(valuesToSparse,2)']'),...
     [thicknessByPoint(valuesToUse)' thicknessForSparse(valuesToSparse)']',...
-    'linear','none');
+    'linear','nearest');
 
 tempImage = zeros(xRange , yRange);
 
@@ -2736,7 +2755,7 @@ warning('Colour range setting is not automated')
 
 [max(thicknessByPoint) max(thicknessForSparse)]
 
-thicknessImage = (thicknessImage-0)/(120-0);
+thicknessImage = (thicknessImage-0)/(80-0);
 
 endoImage = zeros(xRange , yRange);
 
@@ -2750,7 +2769,7 @@ cols(1:100,1) = (1:100)/100;
 figure; 
 imshow(permute(thicknessImage, [2 1 3]))
 colormap(cols)
-title('Thickness'); hcb = colorbar; set(hcb,'Ticks', [0 0.5 1], 'TickLabels', {'0','60','120'})
+title('Thickness'); hcb = colorbar; set(hcb,'Ticks', [0 0.5 1], 'TickLabels', {'0','40','80'})
 
 hold on
 plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2), 'w.')
@@ -2760,7 +2779,7 @@ plot(borderX, borderY, 'g.')
 intensityInterpolant = scatteredInterpolant( double([offSetFullSubscripts(valuesToUse,1)' offSetSparseSubscripts(valuesToSparse,1)']'), ...
     double([offSetFullSubscripts(valuesToUse,2)' offSetSparseSubscripts(valuesToSparse,2)']'),...
     [averageIntensityByPoint(valuesToUse)' averageIntensityForSparse(valuesToSparse)']',...
-    'linear','none');
+    'linear','nearest');
 
 tempImage = zeros(xRange , yRange);
 
@@ -2775,7 +2794,7 @@ intensityImage = tempImage;
 [max(averageIntensityByPoint) max(averageIntensityForSparse)]
 [min(averageIntensityByPoint) min(averageIntensityForSparse)]
 
-intensityImage = (intensityImage-100)/(200-100);
+intensityImage = (intensityImage-100)/(220-100);
 
 %intensityImage(:,:,2) = endoImage;
 
@@ -2785,7 +2804,7 @@ cols(1:100,3) = (1:100)/100;
 figure;
 imshow(permute(intensityImage, [2 1 3]))
 colormap(cols)
-title('Intensity'); hcb = colorbar; set(hcb,'Ticks', [0 0.5 1], 'TickLabels', {'100','150','200'})
+title('Intensity'); hcb = colorbar; set(hcb,'Ticks', [0 0.5 1], 'TickLabels', {'100','160','220'})
 
 hold on
 plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2), 'w.')
@@ -2804,19 +2823,94 @@ hold on
 plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2), 'w.')
 plot(borderX, borderY, 'g.')
 
+%% Calculate intensity depth interpolant
+% First pick dominant ID for each point - also set coords for interp
+pointProfileIDMax = zeros(nPoints, numberOfBlocks)*NaN; 
+
+pointXDepthCoord = zeros(nPoints, numberOfBlocks)*NaN; 
+pointYDepthCoord = zeros(nPoints, numberOfBlocks)*NaN; 
+pointZDepthCoord = zeros(nPoints, numberOfBlocks)*NaN; 
+
+sparseProfileIDMax = zeros(nSparsePoints, numberOfBlocks)*NaN;
+
+sparseXDepthCoord = zeros(nSparsePoints, numberOfBlocks)*NaN; 
+sparseYDepthCoord = zeros(nSparsePoints, numberOfBlocks)*NaN; 
+sparseZDepthCoord = zeros(nSparsePoints, numberOfBlocks)*NaN; 
+
+for iBlock = 1:numberOfBlocks
+    
+    for jPoint = 1:nPoints
+       % Simply take index of max as ID 
+       [~, pointProfileIDMax(jPoint,iBlock) ] = max(pointProfileID(jPoint,iBlock,:));
+       
+       pointXDepthCoord(jPoint,iBlock) = offSetFullSubscripts(jPoint,1);
+       pointYDepthCoord(jPoint,iBlock) = offSetFullSubscripts(jPoint,2);
+       pointZDepthCoord(jPoint,iBlock) = (iBlock-1)*blockThickness;
+    end
+    
+    for jPoint = 1:nSparsePoints
+       % Simply take index of max as ID 
+       [~, sparseProfileIDMax(jPoint,iBlock) ] = max(sparseProfileID(jPoint,iBlock,:));
+       
+       sparseXDepthCoord(jPoint,iBlock) = offSetSparseSubscripts(jPoint,1);
+       sparseYDepthCoord(jPoint,iBlock) = offSetSparseSubscripts(jPoint,2);
+       sparseZDepthCoord(jPoint,iBlock) = (iBlock-1)*blockThickness;
+    end
+end
+
+% Subtract one as index offset 1 up from usual
+pointProfileIDMax = pointProfileIDMax - 1;
+
+sparseProfileIDMax = sparseProfileIDMax - 1;
+
+% Take usable inds;
+valuesToUse = find(~isnan(pointProfileIDMax));
+
+valuesToSparse = find(~isnan(sparseProfileIDMax));
+
+% Unwrap all
+pointXDepthCoord = pointXDepthCoord(valuesToUse); sparseXDepthCoord = sparseXDepthCoord(valuesToSparse);
+
+pointYDepthCoord = pointYDepthCoord(valuesToUse); sparseYDepthCoord = sparseYDepthCoord(valuesToSparse);
+
+pointZDepthCoord = pointZDepthCoord(valuesToUse); sparseZDepthCoord = sparseZDepthCoord(valuesToSparse);
+
+pointProfileIDMax = pointProfileIDMax(valuesToUse); sparseProfileIDMax = sparseProfileIDMax(valuesToSparse);
+
+% Set up interpolant
+depthIDInterpolant = scatteredInterpolant( double([pointXDepthCoord' sparseXDepthCoord']'), ...
+    double([pointYDepthCoord' sparseYDepthCoord']'),...
+    double([pointZDepthCoord' sparseZDepthCoord']'),...
+    [pointProfileIDMax' sparseProfileIDMax']', 'nearest','nearest');
+
+figure; hist([pointProfileIDMax' sparseProfileIDMax']')
+
+% Interpolate by layer
+intensityProfileInterp = zeros(length(XPointsIn), numberOfBlocks)*NaN;
+
+for iBlock = 1:numberOfBlocks
+    intensityProfileInterp(:, iBlock) = depthIDInterpolant(XPointsIn, YPointsIn, ...
+        ones(length(XPointsIn),1)*(iBlock-1)*blockThickness);
+end
 
 figure; 
-plot([thicknessByPoint(valuesToUse)' thicknessForSparse(valuesToSparse)']', ...
-    [averageIntensityByPoint(valuesToUse)' averageIntensityForSparse(valuesToSparse)']', '.');
-rValue = corr([thicknessByPoint(valuesToUse)' thicknessForSparse(valuesToSparse)']', ...
-    [averageIntensityByPoint(valuesToUse)' averageIntensityForSparse(valuesToSparse)']');
-title(sprintf('%.2f', rValue))
-%% Calculate and display intensity depth maps
-figure; imshow(intensityImage')
 
-error('Create single 3D interpolant and block on inclusions')
+mapDepth = [[0 0 0]; [1 0 1]; [0 1 1]; [0 1 0]; [0 0 1]];
 
-figure;
+for iBlock = 1:numberOfBlocks    
+    subplot(2,5,iBlock);
+    
+    tempMap = zeros(xRange , yRange, 'uint8');
+    
+    tempMap(inMap) = intensityProfileInterp(:, iBlock)+1;
+    
+    colormap(mapDepth)
+    
+    imagesc(tempMap')
+end
+%% interpolate intensity profile in 3D and display depth maps
+
+% make interpolant
 
 [max(pointIntensityProfile(:)) max(sparseIntensityProfile(:))]
 [min(pointIntensityProfile(:)) min(sparseIntensityProfile(:))]
@@ -2845,6 +2939,23 @@ for iBlock = 1:numberOfBlocks
 end
     
 %% Look at intensity correlation between aleurone and depth layers
+
+% Alos plot histogram
+figure;
+hold on
+cols = copper(numberOfBlocks);
+
+for iBlock = 1:numberOfBlocks
+    valuesToUse = find(~isnan(pointIntensityProfile(:,iBlock)));
+
+    valuesToSparse = find(~isnan(sparseIntensityProfile(:,iBlock))); 
+    
+    [n, x] = hist([pointIntensityProfile(valuesToUse,iBlock)' sparseIntensityProfile(valuesToSparse,iBlock)']', 100);
+    
+    plot(x, n/sum(n), 'color', cols(iBlock,:))
+end
+
+
 figure;
 
 for iBlock = 1:numberOfBlocks
@@ -2852,9 +2963,9 @@ for iBlock = 1:numberOfBlocks
 
     valuesToSparse = find(~isnan(sparseIntensityProfile(:,iBlock)) & ~isnan(thicknessForSparse));
     
-    alIntensity = [averageIntensityByPoint(valuesToUse)' averageIntensityForSparse(valuesToSparse)'];
+    alIntensity = [averageIntensityByPoint(valuesToUse)' averageIntensityForSparse(valuesToSparse)']';
     
-    blockIntensity = [pointIntensityProfile(valuesToUse,iBlock)' sparseIntensityProfile(valuesToSparse,iBlock)'];
+    blockIntensity = [pointIntensityProfile(valuesToUse,iBlock)' sparseIntensityProfile(valuesToSparse,iBlock)']';
     
     subplot(2,5,iBlock)
     plot(alIntensity, blockIntensity, '.');
@@ -2864,6 +2975,7 @@ for iBlock = 1:numberOfBlocks
     
 end
 
+
 figure;
 
 for iBlock = 1:numberOfBlocks
@@ -2871,14 +2983,14 @@ for iBlock = 1:numberOfBlocks
 
     valuesToSparse = find(~isnan(sparseIntensityProfile(:,iBlock)) & ~isnan(thicknessForSparse));
     
-    alThickness = [thicknessByPoint(valuesToUse)' thicknessForSparse(valuesToSparse)'];
+    alThickness = [thicknessByPoint(valuesToUse)' thicknessForSparse(valuesToSparse)']';
     
-    blockIntensity = [pointIntensityProfile(valuesToUse,iBlock)' sparseIntensityProfile(valuesToSparse,iBlock)'];
+    blockIntensity = [pointIntensityProfile(valuesToUse,iBlock)' sparseIntensityProfile(valuesToSparse,iBlock)']';
     
     subplot(2,5,iBlock)
-    plot(alIntensity, blockIntensity, '.');
+    plot(alThickness, blockIntensity, '.');
     
-    rValue = corr(alIntensity, blockIntensity);
+    rValue = corr(alThickness, blockIntensity);
     title(sprintf('%.2f', rValue))
     
 end
