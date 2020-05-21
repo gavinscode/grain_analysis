@@ -2877,6 +2877,9 @@ pointZDepthCoord = pointZDepthCoord(valuesToUse); sparseZDepthCoord = sparseZDep
 
 pointProfileIDMax = pointProfileIDMax(valuesToUse); sparseProfileIDMax = sparseProfileIDMax(valuesToSparse);
 
+% Also unwrap intensity values for later
+pointIntensityProfileUW = pointIntensityProfile(valuesToUse); sparseIntensityProfileUW = sparseIntensityProfile(valuesToSparse);
+
 % Set up interpolant
 depthIDInterpolant = scatteredInterpolant( double([pointXDepthCoord' sparseXDepthCoord']'), ...
     double([pointYDepthCoord' sparseYDepthCoord']'),...
@@ -2886,58 +2889,96 @@ depthIDInterpolant = scatteredInterpolant( double([pointXDepthCoord' sparseXDept
 figure; hist([pointProfileIDMax' sparseProfileIDMax']')
 
 % Interpolate by layer
-intensityProfileInterp = zeros(length(XPointsIn), numberOfBlocks)*NaN;
+IDProfileInterp = zeros(length(XPointsIn), numberOfBlocks)*NaN;
 
 for iBlock = 1:numberOfBlocks
-    intensityProfileInterp(:, iBlock) = depthIDInterpolant(XPointsIn, YPointsIn, ...
+    IDProfileInterp(:, iBlock) = depthIDInterpolant(XPointsIn, YPointsIn, ...
         ones(length(XPointsIn),1)*(iBlock-1)*blockThickness);
 end
 
 figure; 
 
-mapDepth = [[0 0 0]; [1 0 1]; [0 1 1]; [0 1 0]; [0 0 1]];
+colsID = [[0 0 0]; [1 0 1]; [1 1 0]; [0 1 0]; [0 0 1]];
 
 for iBlock = 1:numberOfBlocks    
     subplot(2,5,iBlock);
     
     tempMap = zeros(xRange , yRange, 'uint8');
     
-    tempMap(inMap) = intensityProfileInterp(:, iBlock)+1;
+    tempMap(inMap) = IDProfileInterp(:, iBlock)+1;
     
-    colormap(mapDepth)
+    colormap(colsID)
     
     imagesc(tempMap')
 end
 %% interpolate intensity profile in 3D and display depth maps
 
-% make interpolant
-
 [max(pointIntensityProfile(:)) max(sparseIntensityProfile(:))]
 [min(pointIntensityProfile(:)) min(sparseIntensityProfile(:))]
 
-for iBlock = 1:numberOfBlocks
-    valuesToUse = find(~isnan(pointIntensityProfile(:,iBlock)));
+% Firstly make interpolant from non-nan values
+valuesToUse = find(~isnan(pointIntensityProfileUW));
 
-    valuesToSparse = find(~isnan(sparseIntensityProfile(:,iBlock)));
+valuesToSparse = find(~isnan(sparseIntensityProfileUW));
+
+intensityProfileInterpolant = scatteredInterpolant( double([pointXDepthCoord(valuesToUse)' sparseXDepthCoord(valuesToSparse)']'), ...
+    double([pointYDepthCoord(valuesToUse)' sparseYDepthCoord(valuesToSparse)']'),...
+    double([pointZDepthCoord(valuesToUse)' sparseZDepthCoord(valuesToSparse)']'),...
+    [pointIntensityProfileUW(valuesToUse)' sparseIntensityProfileUW(valuesToSparse)']', 'linear','nearest');
+
+% Interpolate by layer
+intensityProfileInterp = zeros(length(XPointsIn), numberOfBlocks)*NaN;
+
+for iBlock = 1:numberOfBlocks
+    indsToGet = find(IDProfileInterp(:, iBlock) == ENDOSPERM_INDEX);
     
-    intensityProfileInterpolant = scatteredInterpolant( double([offSetFullSubscripts(valuesToUse,1)' offSetSparseSubscripts(valuesToSparse,1)']'), ...
-        double([offSetFullSubscripts(valuesToUse,2)' offSetSparseSubscripts(valuesToSparse,2)']'),...
-        [pointIntensityProfile(valuesToUse,iBlock)' sparseIntensityProfile(valuesToSparse,iBlock)']',...
-        'linear','none');
-    
+    intensityProfileInterp(indsToGet, iBlock) = intensityProfileInterpolant(XPointsIn(indsToGet), ...
+        YPointsIn(indsToGet), ones(length(indsToGet),1)*(iBlock-1)*blockThickness);
+end
+
+
+figure;
+
+% Put into arrays and plot
+for iBlock = 1:numberOfBlocks
+   
     tempImage = zeros(xRange , yRange);
     
-    tempImage(inMap) = intensityProfileInterpolant(XPointsIn, YPointsIn);
+    % Have to solve w/ color image because of scaling
+    tempImageCol = zeros(xRange , yRange, 3);
     
-    tempImage = (tempImage-0)/(100-0);
+    indsToUse = find(IDProfileInterp(:, iBlock) == ENDOSPERM_INDEX);
+    
+    % Get points and wrap to range
+    tempImage(inMap(indsToUse)) = (intensityProfileInterp(indsToUse, iBlock)-40)/(120-40);
+    
+    tempImageR = tempImage;
+    tempImageG = tempImage;
+    tempImageB = tempImage;
+    
+    % Get other IDs to add
+    indsToUse = find(IDProfileInterp(:, iBlock) ~= ENDOSPERM_INDEX);
+    
+    % Note, offset of 2 required for this colormap indexing
+    tempImageR(inMap(indsToUse)) = colsID(IDProfileInterp(indsToUse, iBlock)+2, 1);
+    tempImageG(inMap(indsToUse)) = colsID(IDProfileInterp(indsToUse, iBlock)+2, 2);
+    tempImageB(inMap(indsToUse)) = colsID(IDProfileInterp(indsToUse, iBlock)+2, 3);
+    
+    tempImageCol(:,:,1) = tempImageR;
+    tempImageCol(:,:,2) = tempImageG;
+    tempImageCol(:,:,3) = tempImageB;
     
     subplot(2,5,iBlock)
-    imshow(tempImage'); hold on;
+
+    imshow(permute(tempImageCol, [2 1 3])); hold on;
     
-    plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2), 'w.')
-    plot(borderX, borderY, 'g.')
+    %plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2), 'w.')
+    %plot(borderX, borderY, 'g.')
 end
     
+cols = [(1:100)', (1:100)', (1:100)']/100;
+colormap(cols)
+hcb = colorbar; set(hcb,'Ticks', [0 0.5 1], 'TickLabels', {'40','80','120'})
 %% Look at intensity correlation between aleurone and depth layers
 
 % Alos plot histogram
@@ -2954,7 +2995,7 @@ for iBlock = 1:numberOfBlocks
     
     plot(x, n/sum(n), 'color', cols(iBlock,:))
 end
-
+%
 
 figure;
 
