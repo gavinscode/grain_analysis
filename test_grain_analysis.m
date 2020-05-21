@@ -2575,21 +2575,21 @@ tempSortedIndex(creasePointsInEdge) = 1;
 
 tempSortedIndex = find(tempSortedIndex(edgeIndexListSorted));
 
-sortedIndexLeft = find(sortedEdgeSubscripts(tempSortedIndex,1) < 0);
+creaseIndexLeft = find(sortedEdgeSubscripts(tempSortedIndex,1) < 0);
 
-sortedIndexLeft = tempSortedIndex(sortedIndexLeft);
+creaseIndexLeft = tempSortedIndex(creaseIndexLeft);
 
-sortedIndexRight = find(sortedEdgeSubscripts(tempSortedIndex,1) > 0);
+creaseIndexRight = find(sortedEdgeSubscripts(tempSortedIndex,1) > 0);
 
-sortedIndexRight = tempSortedIndex(sortedIndexRight);
+creaseIndexRight = tempSortedIndex(creaseIndexRight);
 
 figure; hold on;
 
 plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2))
 
-plot(sortedEdgeSubscripts(sortedIndexLeft,1), sortedEdgeSubscripts(sortedIndexLeft,2), 'bx-')
+plot(sortedEdgeSubscripts(creaseIndexLeft,1), sortedEdgeSubscripts(creaseIndexLeft,2), 'bx-')
 
-plot(sortedEdgeSubscripts(sortedIndexRight,1), sortedEdgeSubscripts(sortedIndexRight,2), 'rx-')
+plot(sortedEdgeSubscripts(creaseIndexRight,1), sortedEdgeSubscripts(creaseIndexRight,2), 'rx-')
 
 % Create 2D map for plotting.
 xRange = ceil(max(sortedEdgeSubscripts(:,1)) - min(sortedEdgeSubscripts(:,1)) + 10);
@@ -2649,9 +2649,9 @@ figure; imshow(image2Plot'); hold on;
 
 plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2), 'b', 'linewidth', 2)
 
-plot(sortedEdgeSubscripts(sortedIndexLeft,1), sortedEdgeSubscripts(sortedIndexLeft,2), 'm*-')
+plot(sortedEdgeSubscripts(creaseIndexLeft,1), sortedEdgeSubscripts(creaseIndexLeft,2), 'm*-')
 
-plot(sortedEdgeSubscripts(sortedIndexRight,1), sortedEdgeSubscripts(sortedIndexRight,2), 'm*-');
+plot(sortedEdgeSubscripts(creaseIndexRight,1), sortedEdgeSubscripts(creaseIndexRight,2), 'm*-');
 
 plot(offSetFullSubscripts(:,1), offSetFullSubscripts(:,2), 'r.')
 
@@ -2952,9 +2952,7 @@ for iBlock = 1:numberOfBlocks
     % Get points and wrap to range
     tempImage(inMap(indsToUse)) = (intensityProfileInterp(indsToUse, iBlock)-40)/(120-40);
     
-    tempImageR = tempImage;
-    tempImageG = tempImage;
-    tempImageB = tempImage;
+    tempImageR = tempImage; tempImageG = tempImage; tempImageB = tempImage;
     
     % Get other IDs to add
     indsToUse = find(IDProfileInterp(:, iBlock) ~= ENDOSPERM_INDEX);
@@ -2970,7 +2968,7 @@ for iBlock = 1:numberOfBlocks
     
     subplot(2,5,iBlock)
 
-    imshow(permute(tempImageCol, [2 1 3])); hold on;
+    imshow( permute(tempImageCol, [2 1 3])); hold on;
     
     %plot(sortedEdgeSubscripts(:,1), sortedEdgeSubscripts(:,2), 'w.')
     %plot(borderX, borderY, 'g.')
@@ -3036,6 +3034,96 @@ for iBlock = 1:numberOfBlocks
     
 end
 
+%% Test plot a line map
+% Go between top, bottom reference points.
+[lineX, lineY] = bresenham(offSetFullSubscripts(indexAbove,1), offSetFullSubscripts(indexAbove,2), ...
+    offSetFullSubscripts(indexBelow,1), offSetFullSubscripts(indexBelow,2));
+
+% Try centre of crease indexes
+[lineX, lineY] = bresenham(sortedEdgeSubscripts(round(mean(creaseIndexLeft)),1), ...
+    sortedEdgeSubscripts(round(mean(creaseIndexLeft)),2), ...
+    sortedEdgeSubscripts(round(mean(creaseIndexRight)),1), ...
+    sortedEdgeSubscripts(round(mean(creaseIndexRight)),2));
+
+lineDistance = sqrt((lineY - lineY(1)).^2 + (lineX-lineX(1)).^2);
+
+% Get indexes into interpolation map.
+[pointsToUse, indsOrig] = intersect([lineX, lineY], [XPointsIn, YPointsIn], 'rows');
+
+% Checke line distance are sorted
+[lineDistance, tempInd] = sort(lineDistance(indsOrig));
+
+% Apply sort to others
+pointsToUse = double(pointsToUse(tempInd,:));
+
+% Check line distance step is consistent
+if any(diff(lineDistance) > 1.1)
+    figure; plot(diff(lineDistance))
+    
+   error('Line stepping over un-even distances') 
+elseif any(diff(lineDistance) > 1)
+   warning('Line stepping over un-even distances') 
+end
+
+% Just to test line
+figure; imshow(image2Plot'); hold on;
+
+plot(offSetFullSubscripts(indexAbove,1), offSetFullSubscripts(indexAbove,2), 'cd')
+
+plot(offSetFullSubscripts(indexBelow,1), offSetFullSubscripts(indexBelow,2), 'cd')
+
+plot(pointsToUse(:,1), pointsToUse(:,2))
+
+% Load values into slice, and also aleurone thickness
+profileSlice = zeros(length(lineDistance), numberOfBlocks)*NaN;
+
+IDSlice = zeros(length(lineDistance), numberOfBlocks)*NaN;
+
+thicknessSlice = zeros(length(lineDistance), 1)*NaN;
+
+%Laer on, try to colour al intensity
+intensitySlice = zeros(length(lineDistance), 1)*NaN;
+
+for iBlock = 1:numberOfBlocks
+    IDSlice(:, iBlock) = depthIDInterpolant(pointsToUse(:,1), pointsToUse(:,2),...
+        ones(length(lineDistance),1)*(iBlock-1)*blockThickness); 
+    
+    indsToUse = find(IDSlice(:, iBlock) == ENDOSPERM_INDEX);
+    
+    profileSlice(indsToUse, iBlock) = intensityProfileInterpolant(pointsToUse(indsToUse,1), pointsToUse(indsToUse,2),...
+        ones(length(lineDistance),1)*(iBlock-1)*blockThickness); 
+    
+    thicknessSlice(:, iBlock) = thicknessInterpolant(pointsToUse(:,1), pointsToUse(:,2)); 
+    
+    intensitySlice(:, iBlock) = intensityInterpolant(pointsToUse(:,1), pointsToUse(:,2)); 
+end
+
+profileSlice = (profileSlice-40)/(120-40);
+
+% make colour image with other regions
+tempSliceCol = zeros(length(lineDistance), numberOfBlocks*blockThickness, 3);
+
+tempSliceR = profileSlice;  tempSliceG = profileSlice;  tempSliceB = profileSlice; 
+
+indsToUse = find(IDSlice ~= ENDOSPERM_INDEX);
+
+tempSliceR(indsToUse) = colsID(IDSlice(indsToUse)+2, 1);
+tempSliceG(indsToUse) = colsID(IDSlice(indsToUse)+2, 2);
+tempSliceB(indsToUse) = colsID(IDSlice(indsToUse)+2, 3);
+
+tempSliceCol(:,:,1) = imresize(tempSliceR, [length(lineDistance), numberOfBlocks*blockThickness]);
+tempSliceCol(:,:,2) = imresize(tempSliceG, [length(lineDistance), numberOfBlocks*blockThickness]);
+tempSliceCol(:,:,3) = imresize(tempSliceB, [length(lineDistance), numberOfBlocks*blockThickness]);
+
+% plotting
+figure;
+
+imshow( permute(tempSliceCol, [2 1 3]))
+
+hold on; axis equal; set(gca, 'Clipping', 'off')
+
+% Note, scale thickness to voxel size as remainder in voxels
+plot(lineDistance, -thicknessSlice/VOXEL_SIZE)
 %% Calculate distance error images
 % Need to distance calculate between points in 2D.
 distanceMatrix2D = zeros(nPoints, nPoints)*NaN;
