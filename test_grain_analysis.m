@@ -1485,12 +1485,7 @@ for iLayer = sparseLayers
         if testEdge && testSurface
             % If not, test distance to exisiting sparse points - seems inefficient
 
-%             testSparse = sum( sqrt( (aleuroneSurfaceSubscriptArray(sparsePointsChoosen,1) - pointChoosen(1)).^2 + ...
-%                 (aleuroneSurfaceSubscriptArray(sparsePointsChoosen,2) - pointChoosen(2)).^2 + ...
-%                 (aleuroneSurfaceSubscriptArray(sparsePointsChoosen,3) - pointChoosen(3)).^2) < sparsePointsDistance) == 0;
-%             if testSparse
-                 sparsePointsChoosen(sparsePointsToChoose(pointsOnLayer(ind))) = 1;
-%             end
+            sparsePointsChoosen(sparsePointsToChoose(pointsOnLayer(ind))) = 1;
 
             % Remove other surface points within surface distance from both lists
             % Note: now done in 2D
@@ -2395,6 +2390,79 @@ for iPoint = 1:(nPoints + nSparsePoints)
     end
 end
 
+%% display demo slice
+figure;
+
+zSlice = 800;
+
+imshow(greyVolumeAligned(:,:,zSlice)'); hold on
+
+aleuroneExeteriorIn = find(aleuroneSurfaceSubscriptArray(:,3) == zSlice);
+
+aleuroneInteriorIn = find(aleuroneInteriorSubscriptArray(:,3) == zSlice);
+
+plot(aleuroneSurfaceSubscriptArray(aleuroneExeteriorIn,1), aleuroneSurfaceSubscriptArray(aleuroneExeteriorIn,2), 'y.')
+
+plot(aleuroneInteriorSubscriptArray(aleuroneInteriorIn,1), aleuroneInteriorSubscriptArray(aleuroneInteriorIn,2), 'y.')
+
+allPointsInSlice = find(subscriptsToInterpolate(:,3) >= zSlice - 3 & ...
+    subscriptsToInterpolate(:,3) <= zSlice + 3);
+
+sparsePointsInSlice = find(subscriptsForSparse(:,3) >= zSlice - 3 & ...
+    subscriptsForSparse(:,3) <= zSlice + 3) + nPoints;
+
+cols = jet(numberOfBlocks);
+
+for iPoint = [allPointsInSlice' sparsePointsInSlice']
+    
+    if iPoint <= nPoints
+        tempNormal = normalByPoint(iPoint,:);
+        
+        pointIdentity = interpolatedIdentity(iPoint);
+        
+        %Check if aleurone or endosperm
+        if pointIdentity
+            %Aleurone, extend line in from interior surface
+            startPoint = internalIntersectByPoint(iPoint,:);
+        else
+           % Endosperm, extend in from outer surface 
+           startPoint = subscriptsToInterpolate(iPoint,:);
+        end
+    else
+        tempNormal = normalForSparse(iPoint-nPoints,:);
+        
+        pointIdentity = sparseIdentity(iPoint-nPoints);
+        
+        % As above
+        if pointIdentity
+            %Aleurone, extend line in from interior surface
+            startPoint = internalIntersectForSparse(iPoint-nPoints,:);
+        else
+           % Endosperm, extend in from outer surface 
+           startPoint = subscriptsForSparse(iPoint-nPoints,:);
+        end
+    end
+    
+    if ~any(isnan(tempNormal)) & ~any(isnan(startPoint))
+        %Draw line in voxel space.
+        [tempX, tempY, tempZ, voxelDistances] = amanatideswooalgorithm_efficient(startPoint, ...
+            tempNormal, grid3D, 0, [], depthToCalculate*2, 1);
+
+        indexList = sub2ind(volumeSize, tempX, tempY, tempZ);
+        
+        % Don't bother stepping back
+        
+        voxelSum = cumsum(voxelDistances);
+        
+         for jBlock = 1:numberOfBlocks
+            blockSet = find(voxelSum < blockThickness*jBlock & voxelSum ~= 0);
+            
+            voxelSum(blockSet) = 0;
+            
+            plot(tempX(blockSet), tempY(blockSet), 'color', cols(jBlock,:))
+         end
+    end
+end
 %% Calculate unwrapping 
 
 % Check for points with inf distance.
@@ -3079,6 +3147,13 @@ end
 %     sortedEdgeSubscripts(round(mean(creaseIndexRight)),1), ...
 %     sortedEdgeSubscripts(round(mean(creaseIndexRight)),2));
 
+% On test slice - get line between extemes (should be crease)
+    % Should really sort and chain together rather than just taking between ends...
+[~, minInd] = min(offSetSparseSubscripts(sparsePointsInSlice,1));
+[~, maxInd] = max(offSetSparseSubscripts(sparsePointsInSlice,1));
+[lineX, lineY] = bresenham(offSetSparseSubscripts(sparsePointsInSlice(minInd),1), offSetSparseSubscripts(sparsePointsInSlice(minInd),2), ...
+    offSetSparseSubscripts(sparsePointsInSlice(maxInd),1), offSetSparseSubscripts(sparsePointsInSlice(maxInd),2));
+
 lineDistance = sqrt((lineY - lineY(1)).^2 + (lineX-lineX(1)).^2);
 
 % Get indexes into interpolation map.
@@ -3091,7 +3166,7 @@ lineDistance = sqrt((lineY - lineY(1)).^2 + (lineX-lineX(1)).^2);
 pointsToUse = double(pointsToUse(tempInd,:));
 
 % Check line distance step is consistent
-if any(diff(lineDistance) > 1.1)
+if any(diff(lineDistance) > 1.3)
     figure; plot(diff(lineDistance))
     
    error('Line stepping over un-even distances') 
@@ -3105,6 +3180,9 @@ figure; imshow(image2Plot'); hold on;
 plot(offSetFullSubscripts(indexAbove,1), offSetFullSubscripts(indexAbove,2), 'cd')
 
 plot(offSetFullSubscripts(indexBelow,1), offSetFullSubscripts(indexBelow,2), 'cd')
+
+plot(offSetSparseSubscripts(sparsePointsInSlice,1), ...
+    offSetSparseSubscripts(sparsePointsInSlice,2), '.')
 
 plot(pointsToUse(:,1), pointsToUse(:,2))
 
