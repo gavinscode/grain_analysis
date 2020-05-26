@@ -45,6 +45,11 @@ blockThickness = 20/VOXEL_SIZE;
 
 depthToCalculate = 300/VOXEL_SIZE;
 
+% Try to make these all integer values given Voxel thickenss
+numberOfBlocks = depthToCalculate/blockThickness;
+
+numPlotRows = ceil(numberOfBlocks/5);
+
 winterCoolColours = [(0:numberOfBlocks-1)', fliplr(0:numberOfBlocks-1)' (0:numberOfBlocks-1)']/(numberOfBlocks-1);
 
 % Curve is calculated at this interval
@@ -2012,8 +2017,6 @@ for iPoint = 1:nPoints
 end
     
 %% Calaculate integrals under surface.
-% Try to make these all integer values given Voxel thickenss
-numberOfBlocks = depthToCalculate/blockThickness;
 
 pointIntensityProfile = zeros(nPoints, numberOfBlocks)*NaN;
 
@@ -2834,6 +2837,13 @@ valuesToUse = find(~isnan(thicknessByPoint));
 
 valuesToSparse = find(~isnan(thicknessForSparse));
 
+plotRefPoints = 0;
+plotRefLines = 0;
+refLines = {[1286, 2116], [1503, 1801]; ...
+            [573.5 2077], [750.9 1745]; ...
+            [322.2, 1009],[438.4 1654]; ...
+            [2051 1106], [2128 635.3]};
+
 figure; 
 subplot(1,3,1);
 [n,x] = hist([thicknessByPoint(valuesToUse)' thicknessForSparse(valuesToSparse)']',100);
@@ -2881,6 +2891,22 @@ hold on
 plot(endoBorderX, endoBorderY, 'g.')
 plot(aleuroneBorderX, aleuroneBorderY, 'y.')
 
+if plotRefPoints
+    plot(offSetFullSubscripts(:,1), offSetFullSubscripts(:,2), 'r.')
+end
+
+if plotRefLines
+   nLines = size(refLines,1);
+   
+   for iLine = 1:nLines
+       line1 = refLines{iLine,1};
+       
+       line2 = refLines{iLine,2};
+       
+       plot([line1(1) line2(1)], [line1(2) line2(2)], 'm')
+   end
+end
+
 % Do for intensity.
 intensityInterpolant = scatteredInterpolant( double([offSetFullSubscripts(valuesToUse,1)' offSetSparseSubscripts(valuesToSparse,1)']'), ...
     double([offSetFullSubscripts(valuesToUse,2)' offSetSparseSubscripts(valuesToSparse,2)']'),...
@@ -2905,6 +2931,22 @@ title('Intensity (AU)'); hcb = colorbar; set(hcb,'Ticks', [0 0.5 1], 'TickLabels
 hold on
 plot(endoBorderX, endoBorderY, 'g.')
 plot(aleuroneBorderX, aleuroneBorderY, 'y.')
+
+if plotRefPoints
+    plot(offSetFullSubscripts(:,1), offSetFullSubscripts(:,2), 'r.')
+end
+
+if plotRefLines
+   nLines = size(refLines,1);
+   
+   for iLine = 1:nLines
+       line1 = refLines{iLine,1};
+       
+       line2 = refLines{iLine,2};
+       
+       plot([line1(1) line2(1)], [line1(2) line2(2)], 'm')
+   end
+end
 %% Calculate intensity depth interpolant
 % First pick dominant ID for each point - also set coords for interp
 pointProfileIDMax = zeros(nPoints, numberOfBlocks)*NaN; 
@@ -2978,12 +3020,13 @@ for iBlock = 1:numberOfBlocks
         ones(length(XPointsIn),1)*(iBlock-1)*blockThickness);
 end
 
+
 figure; 
 
 colsID = [[0 0 0]; [1 0 1]; [1 1 0]; [0 1 0]; [0 0 1]];
 
 for iBlock = 1:numberOfBlocks    
-    subplot(2,5,iBlock);
+    subplot(numPlotRows,5,iBlock);
     
     tempMap = zeros(xRange , yRange, 'uint8');
     
@@ -2992,6 +3035,7 @@ for iBlock = 1:numberOfBlocks
     colormap(colsID)
     
     imagesc(tempMap')
+    axis off; axis equal
 end
 %% interpolate intensity profile in 3D and display depth maps
 
@@ -3047,7 +3091,7 @@ for iBlock = 1:numberOfBlocks
     tempImageCol(:,:,2) = tempImageG;
     tempImageCol(:,:,3) = tempImageB;
     
-    subplot(2,5,iBlock)
+    subplot(numPlotRows,5,iBlock)
 
     imshow( permute(tempImageCol, [2 1 3])); hold on;
     
@@ -3091,14 +3135,14 @@ for iBlock = 1:numberOfBlocks
     
     blockIntensity = [pointIntensityProfile(valuesToUse,iBlock)' sparseIntensityProfile(valuesToSparse,iBlock)']';
     
-    subplot(2,5,iBlock)
+    subplot(numPlotRows,5,iBlock)
     plot(alIntensity, blockIntensity, '.');
     
     rValue = corr(alIntensity, blockIntensity);
     title(sprintf('%i - %i, r = %.2f', [(iBlock-1) iBlock]*blockThickness*VOXEL_SIZE, rValue));
 end
 
-subplot(2,5,6)
+subplot(numPlotRows,5,6)
 xlabel('Aleurone intensity (AU)')
 ylabel('Endosperm intensity (AU)')
 
@@ -3113,21 +3157,23 @@ for iBlock = 1:numberOfBlocks
     
     blockIntensity = [pointIntensityProfile(valuesToUse,iBlock)' sparseIntensityProfile(valuesToSparse,iBlock)']';
     
-    subplot(2,5,iBlock)
+    subplot(numPlotRows,5,iBlock)
     plot(alThickness, blockIntensity, '.');
     
     rValue = corr(alThickness, blockIntensity);
     title(sprintf('%i - %i, r = %.2f', [(iBlock-1) iBlock]*blockThickness*VOXEL_SIZE, rValue));
 end
 
-subplot(2,5,6)
+subplot(numPlotRows,5,6)
 xlabel('Aleurone thickness (um)')
-xlabel('Endosperm intensity (AU)')
+ylabel('Endosperm intensity (AU)')
 
 %% Test plot a slice
 % Go between top, bottom reference points.
 [lineX, lineY] = bresenham(offSetFullSubscripts(indexAbove,1), offSetFullSubscripts(indexAbove,2), ...
     offSetFullSubscripts(indexBelow,1), offSetFullSubscripts(indexBelow,2));
+
+lineX2 = lineX; lineY2 = lineY;
 
 % Try centre of crease indexes
 % [lineX, lineY] = bresenham(sortedEdgeSubscripts(round(mean(creaseIndexLeft)),1), ...
@@ -3137,10 +3183,10 @@ xlabel('Endosperm intensity (AU)')
 
 % On test slice - get line between extemes (should be crease)
     % Should really sort and chain together rather than just taking between ends...
-% [~, minInd] = min(offSetSparseSubscripts(sparsePointsInSlice,1));
-% [~, maxInd] = max(offSetSparseSubscripts(sparsePointsInSlice,1));
-% [lineX, lineY] = bresenham(offSetSparseSubscripts(sparsePointsInSlice(minInd),1), offSetSparseSubscripts(sparsePointsInSlice(minInd),2), ...
-%     offSetSparseSubscripts(sparsePointsInSlice(maxInd),1), offSetSparseSubscripts(sparsePointsInSlice(maxInd),2));
+[~, minInd] = min(offSetSparseSubscripts(sparsePointsInSlice,1));
+[~, maxInd] = max(offSetSparseSubscripts(sparsePointsInSlice,1));
+[lineX, lineY] = bresenham(offSetSparseSubscripts(sparsePointsInSlice(minInd),1), offSetSparseSubscripts(sparsePointsInSlice(minInd),2), ...
+    offSetSparseSubscripts(sparsePointsInSlice(maxInd),1), offSetSparseSubscripts(sparsePointsInSlice(maxInd),2));
 
 lineDistance = sqrt((lineY - lineY(1)).^2 + (lineX-lineX(1)).^2);
 
@@ -3164,26 +3210,23 @@ end
 
 % Just to test line
 warning('Plot this on better map for reference')
-figure; imshow(image2Plot'); hold on;
+figure; imshow(IDImage'*100); hold on;
 
-plot(offSetFullSubscripts(indexAbove,1), offSetFullSubscripts(indexAbove,2), 'cd')
-
-plot(offSetFullSubscripts(indexBelow,1), offSetFullSubscripts(indexBelow,2), 'cd')
+% plot(offSetFullSubscripts(indexAbove,1), offSetFullSubscripts(indexAbove,2), 'cd')
+% 
+% plot(offSetFullSubscripts(indexBelow,1), offSetFullSubscripts(indexBelow,2), 'cd')
 
 % plot(offSetSparseSubscripts(sparsePointsInSlice,1), ...
 %     offSetSparseSubscripts(sparsePointsInSlice,2), '.')
 
-plot(pointsToUse(:,1), pointsToUse(:,2))
+plot(lineX, lineY, 'm')
+
+plot(lineX2, lineY2, 'r')
 
 % Load values into slice, and also aleurone thickness
 profileSlice = zeros(length(lineDistance), numberOfBlocks)*NaN;
 
 IDSlice = zeros(length(lineDistance), numberOfBlocks)*NaN;
-
-thicknessSlice = zeros(length(lineDistance), 1)*NaN;
-
-%Laer on, try to colour al intensity
-intensitySlice = zeros(length(lineDistance), 1)*NaN;
 
 for iBlock = 1:numberOfBlocks
     IDSlice(:, iBlock) = depthIDInterpolant(pointsToUse(:,1), pointsToUse(:,2),...
@@ -3192,12 +3235,12 @@ for iBlock = 1:numberOfBlocks
     indsToUse = find(IDSlice(:, iBlock) == ENDOSPERM_INDEX);
     
     profileSlice(indsToUse, iBlock) = intensityProfileInterpolant(pointsToUse(indsToUse,1), pointsToUse(indsToUse,2),...
-        ones(length(indsToUse),1)*(iBlock-1)*blockThickness); 
-    
-    thicknessSlice(:, iBlock) = thicknessInterpolant(pointsToUse(:,1), pointsToUse(:,2)); 
-    
-    intensitySlice(:, iBlock) = intensityInterpolant(pointsToUse(:,1), pointsToUse(:,2)); 
+        ones(length(indsToUse),1)*(iBlock-1)*blockThickness);  
 end
+
+thicknessSlice = thicknessInterpolant(pointsToUse(:,1), pointsToUse(:,2)); 
+
+intensitySlice = intensityInterpolant(pointsToUse(:,1), pointsToUse(:,2));
 
 profileSlice = (profileSlice-40)/(120-40);
 
@@ -3224,16 +3267,119 @@ imshow( permute(tempSliceCol, [2 1 3]))
 hold on; axis equal; set(gca, 'Clipping', 'off'); axis on
 
 % Note, scale thickness to voxel size as remainder in voxels
-plot(lineDistance, -thicknessSlice/VOXEL_SIZE);
+area(lineDistance, -thicknessSlice/VOXEL_SIZE, 0, 'FaceColor', 'y');
 xlim([0 length(lineDistance)])
 ylim([-25 numberOfBlocks*blockThickness])
 
-set(gca, 'YTick', [-25, 0, 25, 50], 'YTickLabel', -[-25, 0, 25, 50])
-set(gca, 'XTick', round([0, length(lineDistance)/3 length(lineDistance)*2/3 length(lineDistance)]/10)*10)
+yTickVals = [-25, 0, 25, 50, 75];
+set(gca, 'YTick', yTickVals, 'YTickLabel', -yTickVals*VOXEL_SIZE)
+xTickVals = (1:10)/VOXEL_SIZE*1000;
+set(gca, 'XTick', xTickVals, 'XTickLabel', xTickVals*VOXEL_SIZE/1000)
 
 title('Slice into grain')
-xlabel('Distance along slice (um)')
-ylabel('Distance under endosperm-aleurone interface (um)')
+xlabel('Distance along slice (mm)')
+ylabel('Distance down slice (um)')
+
+%% Plot slices reference from map
+%%% Points are specified in aleurone map section
+nLines = size(refLines,1);
+  
+figTest = figure; hold on; axis equal
+plot3(subscriptsToInterpolate(:,1), subscriptsToInterpolate(:,2), subscriptsToInterpolate(:,3), '.')
+
+for iLine = 1:nLines
+    figure(figTest)
+    
+   line1 = refLines{iLine,1};
+
+   line2 = refLines{iLine,2};
+
+   % Match each point
+   [~, ind1] = min(sqrt((line1(1) - offSetFullSubscripts(:,1)).^2 + (line1(2) - offSetFullSubscripts(:,2)).^2));
+   
+   [~, ind2] = min(sqrt((line2(1) - offSetFullSubscripts(:,1)).^2 + (line2(2) - offSetFullSubscripts(:,2)).^2));
+   
+   % Plot each point and normal in 3D to test
+   %%% May need to add a catch in case normal is empty later on
+   normal1 = normalByPoint(ind1,:);
+    
+   point1 = subscriptsToInterpolate(ind1,:);
+
+   plot3(point1(1), point1(2), point1(3), 'x')    
+       
+  line([0 50]*normal1(1) + point1(1),[0 50]*normal1(2) + point1(2), ...
+        [0 50]*normal1(3) + point1(3)); 
+    
+   normal2 = normalByPoint(ind2,:);
+    
+   point2 = subscriptsToInterpolate(ind2,:);
+
+   plot3(point2(1), point2(2), point2(3), 'x')    
+       
+   line([0 50]*normal2(1) + point2(1), [0 50]*normal2(2) + point2(2), ...
+        [0 50]*normal2(3) + point2(3)); 
+    
+   plot3([point1(1) point2(1)], [point1(2) point2(2)], [point1(3) point2(3)], 'linewidth',2)
+   
+   pointLine = point1 - point2;
+   
+   pointDist = norm(pointLine);
+   
+   pointLine = pointLine/norm(pointLine);
+
+   normalLIne = (normal1 + normal2)/2;
+   
+   % Take rotation matrix to align x-axis
+   rMat = matrix2rotatevectors(pointLine, [1 0 0]);
+   % Rotate y-axis
+   planeLine = [0 1 0]*rMat;
+   
+   %Solve for best rotation angle
+   angles = -pi:pi/360:pi;
+   
+   angleError = zeros(length(angles), 1);
+   
+   for jAngle = 1:length(angles)
+      % Rotate b around a by theta,then take angle to c
+      testLine = planeLine*vrrotvec2mat([pointLine angles(jAngle)]);
+      
+      angleError(jAngle) = atan2(norm(cross(testLine,normalLIne)),...
+          dot(testLine,normalLIne));
+   end
+   
+   % Apply rotation
+   [~, minI] = min(angleError);
+   
+   planeLine = planeLine*vrrotvec2mat([pointLine angles(minI)]);
+   
+   line([0 100]*planeLine(1) + point2(1), [0 100]*planeLine(2) + point2(2), ...
+        [0 100]*planeLine(3) + point2(3), 'color', 'm'); 
+   
+   %%% Should centre plane points
+   
+   testX = -200:(round(pointDist)+200);
+   testY = -100:100;
+   
+   planeX = zeros(length(testX), length(testY));
+   planeY = zeros(length(testX), length(testY));
+   planeZ = zeros(length(testX), length(testY));
+   
+   for jPoint = 1:length(testX)
+      planeX(jPoint,:) = testX(jPoint)*pointLine(1) + testY(:)*planeLine(1) + point2(1);
+      
+      planeY(jPoint,:) = testX(jPoint)*pointLine(2) + testY(:)*planeLine(2) + point2(2);
+      
+      planeZ(jPoint,:) = testX(jPoint)*pointLine(3) + testY(:)*planeLine(3) + point2(3);
+   end
+   
+   
+   plot3(planeX(:), planeY(:), planeZ(:), '.')
+   
+   interpIm = interp3(single(greyVolumeAligned),planeY,planeX,planeZ,'linear');
+   figure;
+   imshow(uint8(interpIm'))
+end
+   
 %% Profile plotting
 %%% May wish to add option of normalizing to radius
 nBins = 20;
@@ -3250,10 +3396,10 @@ valuesToUse = find(~isnan(thicknessByPoint));
 valuesToSparse = find(~isnan(thicknessForSparse));
 
 [verticalThicknessMean, verticalCoords, ~, verticalCount, vertBins] = calculateProfile([thicknessByPoint(valuesToUse)' thicknessForSparse(valuesToSparse)']',...
-    [offSetFullSubscripts(valuesToUse,2)' offSetSparseSubscripts(valuesToSparse,2)']', nBins, []);
+    -[offSetFullSubscripts(valuesToUse,2)' offSetSparseSubscripts(valuesToSparse,2)']', nBins, []);
 
 [verticalIntensityMean] = calculateProfile([averageIntensityByPoint(valuesToUse)' averageIntensityForSparse(valuesToSparse)']',...
-    [offSetFullSubscripts(valuesToUse,2)' offSetSparseSubscripts(valuesToSparse,2)']', vertBins, []);
+    -[offSetFullSubscripts(valuesToUse,2)' offSetSparseSubscripts(valuesToSparse,2)']', vertBins, []);
 
 % Expected area error
 (length(valuesToUse)+length(valuesToSparse))/(sum(interpolatedIdentity) + sum(sparseIdentity))
@@ -3262,20 +3408,22 @@ sum(verticalCount)/(sum(interpolatedIdentity) + sum(sparseIdentity))
 
 vertFigure = figure; 
 
+vertOffset = 0; -min(verticalCoords)+max(verticalCoords);
+
 subplot(1,3,1)
-plot(verticalThicknessMean, verticalCoords*VOXEL_SIZE/1000);
+plot(verticalThicknessMean, (verticalCoords+vertOffset)*VOXEL_SIZE/1000);
 xlabel('Average aleurone thickness (um)')
 ylabel('Distance from base (mm)')
 xlim([0 60]); ylim([0 10])
 
 subplot(1,3,2)
-plot(verticalIntensityMean, verticalCoords*VOXEL_SIZE/1000);
+plot(verticalIntensityMean, (verticalCoords+vertOffset)*VOXEL_SIZE/1000);
 xlabel('Average aleurone intensity (AU)')
 title('Vertical profiles')
 xlim([0 200]); ylim([0 10])
 
 subplot(1,3,3)
-plot(verticalCount*areaPerPoint, verticalCoords*VOXEL_SIZE/1000);
+plot(verticalCount*areaPerPoint, (verticalCoords+vertOffset)*VOXEL_SIZE/1000);
 xlabel('Average aleurone area (mm2)')
 xlim([0 10]); ylim([0 10])
 
@@ -3283,8 +3431,11 @@ xlim([0 10]); ylim([0 10])
 
 xCent = mean(offSetFullSubscripts([indexAbove indexBelow],1));
 
+% Area is large at bottom becasue of points clustering on base
 [horizontalThicknessMean, horizontalCoords, ~, horizontalCount, hoirzBins] = calculateProfile([thicknessByPoint(valuesToUse)' thicknessForSparse(valuesToSparse)']',...
     [offSetFullSubscripts(valuesToUse,1)' offSetSparseSubscripts(valuesToSparse,1)']', nBins, xCent);
+
+%[subscriptsToInterpolate(valuesToUse,3)' subscriptsForSparse(valuesToSparse,3)']
 
 [horizontalIntensityMean] = calculateProfile([averageIntensityByPoint(valuesToUse)' averageIntensityForSparse(valuesToSparse)']',...
     [offSetFullSubscripts(valuesToUse,1)' offSetSparseSubscripts(valuesToSparse,1)']', hoirzBins, xCent);
@@ -3319,10 +3470,10 @@ for iBlock = 1:numberOfBlocks
     
     % Calc certical, using bins from al
     [verticalIntensityMean] = calculateProfile([pointIntensityProfile(valuesToUse, iBlock)' sparseIntensityProfile(valuesToSparse, iBlock)']',...
-        [offSetFullSubscripts(valuesToUse,2)' offSetSparseSubscripts(valuesToSparse,2)']', vertBins, []);
+        -[offSetFullSubscripts(valuesToUse,2)' offSetSparseSubscripts(valuesToSparse,2)']', vertBins, []);
     
     subplot(1,2,1); hold on
-    plot(verticalIntensityMean, verticalCoords*VOXEL_SIZE/1000, 'color', cols(iBlock,:));
+    plot(verticalIntensityMean, (verticalCoords+vertOffset)*VOXEL_SIZE/1000, 'color', cols(iBlock,:));
 
     [horizontalIntensityMean] = calculateProfile([pointIntensityProfile(valuesToUse, iBlock)' sparseIntensityProfile(valuesToSparse, iBlock)']',...
         [offSetFullSubscripts(valuesToUse,1)' offSetSparseSubscripts(valuesToSparse,1)']', hoirzBins, xCent);
