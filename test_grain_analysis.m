@@ -36,14 +36,22 @@ GERM_INDEX = 3;
 
 VOXEL_SIZE = 4;
 
+% Points on maps, in voxels
+edgeDistance = 20; %10
+
+surfaceDistance = 50; %50
+
+%Not, sparse distance must be less then others for code to work
+sparsePointsDistance = 2; %3
+
 % Flags
 testPlotNormals = 0;
 
 maxAleuroneThickness = 75; %In voxels - previous limit at 20
 
-blockThickness = 20/VOXEL_SIZE;
+blockThickness = 8/VOXEL_SIZE;
 
-depthToCalculate = 300/VOXEL_SIZE;
+depthToCalculate = 120/VOXEL_SIZE;
 
 % Try to make these all integer values given Voxel thickenss
 numberOfBlocks = depthToCalculate/blockThickness;
@@ -1403,13 +1411,6 @@ sparsePointsChoosen = zeros(size(combinedSurfaceSubscripts,1), 1, 'logical');
 % For 20, 50, gives 343 1314 points 
 % Seems good to get dense on border and moderate on surface
 
-edgeDistance = 20; %10
-
-surfaceDistance = 50; %50
-
-%Not, sparse distance must be less then others for code to work
-sparsePointsDistance = 3; %3
-
 % Test edge points first. Select from top of germ (max Y)
 tic
 while ~isempty(edgePointsToChoose)
@@ -2350,6 +2351,10 @@ for iPoint = 1:(nPoints + nSparsePoints)
                         % Just include if thickness more than 3/4 of full block
                         % My be less at end
                         if sum(distanceSet) > blockThickness*3/4;
+                            if size(distanceSet,2) ~= 1
+                               distanceSet = distanceSet'; 
+                            end
+                            
                             % Take average
                             tempProfile(jBlock) = wmean( ...
                                 double(greyVolumeAligned(indexListTemp(blockSet)))*...
@@ -2385,7 +2390,9 @@ for iPoint = 1:(nPoints + nSparsePoints)
                warning('%i Less than one block', iPoint) 
             end
         else
-           error('%i No endosperm, wrong normal?', iPoint) 
+           if ~any(lineIDs == GERM_INDEX)
+                error('%i No endosperm or germ, wrong normal?', iPoint) 
+           end
         end
     else
        warning('%i Either no normal or no start point, skipped completely', iPoint) 
@@ -3019,7 +3026,6 @@ for iBlock = 1:numberOfBlocks
     IDProfileInterp(:, iBlock) = depthIDInterpolant(XPointsIn, YPointsIn, ...
         ones(length(XPointsIn),1)*(iBlock-1)*blockThickness);
 end
-
 
 figure; 
 
