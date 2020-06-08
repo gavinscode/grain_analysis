@@ -4,12 +4,25 @@
 % Test load and plot of grain stack.
 clc; clear; close all
 
-% Other: Om_1_7_test
-% labelDirectory = '/Users/gavintaylor/Documents/Company/Client Projects/Grain LU/Data/OB6_test/Labels';
-% greyDirectory = '/Users/gavintaylor/Documents/Company/Client Projects/Grain LU/Data/OB6_test/Images';
+% Other: Om_1_6
+labelDirectory = 'C:\Grain_temp\Om1_6\Labels';
+greyDirectory = 'C:\Grain_temp\Om1_6\Images';
+dataName = 'OM16';
+ALEURONE_INDEX = 2; % Material index.
+ENDOSPERM_INDEX = 1;
+GERM_INDEX = 3;
+turnXY = -1; %Set to get correct rotation of crease, should face down
+roundOnLoop = 8;
 
-labelDirectory = 'C:\Users\Admin\Lund University\Nick Sirijovski - Gavin\Data_for_ML_Test\OB6_test\Labels';
-greyDirectory = 'C:\Users\Admin\Lund University\Nick Sirijovski - Gavin\Data_for_ML_Test\OB6_test\Images';
+%OB_6 test
+%labelDirectory = 'C:\Grain_temp\OB6_test\Labels';
+%greyDirectory = 'C:\Grain_temp\OB6_test\Images';
+%dataName = 'OB6';
+% ALEURONE_INDEX = 1; % Material index.
+% ENDOSPERM_INDEX = 2;
+% GERM_INDEX = 3;
+%turnXY = 1;
+%roundOnLoop = 64; % Can be set back to 8?
 
 % Loading tiff stack takes a while.
 grainVolume = loadtiffstack(labelDirectory, 1);
@@ -29,10 +42,6 @@ STREL_26_CONNECTED = strel('cube', 3);
 s = settings; s.images.UseHalide.TemporaryValue = false;
 grainVolume = imopen(grainVolume, STREL_6_CONNECTED);
 s = settings; s.images.UseHalide.TemporaryValue = true;
-
-ALEURONE_INDEX = 1; % Material index.
-ENDOSPERM_INDEX = 2;
-GERM_INDEX = 3;
 
 VOXEL_SIZE = 4;
 
@@ -67,6 +76,7 @@ curveStep = 5;
     % 10 - ~min, 5 - ~15 min
 % Note that original interpolation is every xth slice, 
 % so interp is at curveStepxstep slices
+%%% Set to 5 for good runs
 nrbStep = 10;
 %% Get voxels on exterior of orignal grain by overlap to exterior.
 % Get pixels in grain.
@@ -90,7 +100,7 @@ grainCenter = mean(grainSubscriptArray);
 
 transform2Vertical = matrix2rotatevectors([0, 0, 1], grainLongAxis);
 
-transform2Up = matrix2rotatevectors([0, 1, 0], grainCreaseAxis*transform2Vertical);
+transform2Up = matrix2rotatevectors([0, turnXY, 0], grainCreaseAxis*transform2Vertical);
 
 
 
@@ -151,7 +161,7 @@ nIndex = length(surfaceIndexList); grainSurfaceSubscriptArray = zeros(nIndex, 3)
 
 
 % Get aleurone surface subscripts.
-aleuroneSurfaceIndexList = find(grainExterior & grainVolume == ALEURONE_INDEX);
+aleuroneSurfaceIndexList = find(grainExterior & grainVolumeAligned == ALEURONE_INDEX);
 
 nIndex = length(aleuroneSurfaceIndexList); aleuroneSurfaceSubscriptArray = zeros(nIndex, 3);
 
@@ -160,9 +170,13 @@ nIndex = length(aleuroneSurfaceIndexList); aleuroneSurfaceSubscriptArray = zeros
 
 clear grainIndexList, clear grainVolume
 
-%figure; hold on; axis equal; set(gca, 'Clipping', 'off')
-
-%plot3(grainSurfaceSubscriptArray(:,1), grainSurfaceSubscriptArray(:,2), grainSurfaceSubscriptArray(:,3), 'b.')
+figure; 
+% hold on; axis equal; set(gca, 'Clipping', 'off')
+% plot3(grainSurfaceSubscriptArray(:,1), grainSurfaceSubscriptArray(:,2), grainSurfaceSubscriptArray(:,3), 'b.')
+subplot(1,2,1);
+imshow(grainVolumeAligned(:,:,500)*100); title('500')
+subplot(1,2,2);
+imshow(grainVolumeAligned(:,:,2000)*100); title('2000')
 %% Fill beneath crease on each z-slices to get shaped.
 % Get ranges to check.
 zRange = [ceil( min(grainSurfaceSubscriptArray(:,3))) floor( max(grainSurfaceSubscriptArray(:,3)))];
@@ -202,11 +216,11 @@ for iSlice = zRangeAleurone(1):zRangeAleurone(2)
     % Step along x in columns of y.
     for jColumn = 1:volumeSize(1)
         
-        if sum(grainVolumeAligned(jColumn,:,iSlice))
-            % Find highest point.
-            temp = find(grainVolumeAligned(jColumn,:,iSlice) == ALEURONE_INDEX | ...
+        temp = find(grainVolumeAligned(jColumn,:,iSlice) == ALEURONE_INDEX | ...
                 grainVolumeAligned(jColumn,:,iSlice) == ENDOSPERM_INDEX);
-            
+        
+        if ~isempty(temp)
+            % Find highest point.
             grainTop = max(temp);
             
             % Find zeros underneath.
@@ -372,9 +386,6 @@ xBottomOfLoop = round( mean(sliceSubscriptArray(:,1)));
 tempIndex = find(sliceSubscriptArray(:,1) == xBottomOfLoop);
 
 yBottomOfLoop = min(sliceSubscriptArray(tempIndex,2))-1;
-
-
-
 %% Calc distance map from plane underneath grain.
 % Make mask image for grain.
 grainMask = logical(smallGrainVolume);
@@ -477,7 +488,7 @@ clear distanceFromTop, clear distanceFromBottom
 % Round to lower precision to prevent floating point errors.
 %%% Note, changed from 8 to 64 as loop doesn't reach end,
 %%% Causes some floaters, but no gaps. Not guaranteed to work for all...
-dMap = round(dMap * 64)/64;
+dMap = round(dMap * roundOnLoop)/roundOnLoop;
 
 dMap(isnan(dMap)) = Inf;
 
@@ -486,7 +497,31 @@ loopVolume = imregionalmin(dMap);
 
 clear dMap
 
+loopIndexList = find(loopVolume);
+
+nIndex = length(loopIndexList); loopSubscriptArray = zeros(nIndex, 3);
+
+[loopSubscriptArray(:,1), loopSubscriptArray(:,2), loopSubscriptArray(:,3)] = ...
+    ind2sub(smallVolumeSize, loopIndexList);
+
+% Check top and bottom of loop are in loop volume
+if ~loopVolume(xTopOfLoop, yTopOfLoop, zTopOfLoop) | ... 
+        ~loopVolume(xBottomOfLoop, yBottomOfLoop, zBottomOfLoop)
+    
+    
+    % may need to adjsut round on loop value
+    error('Loop did not reach ends, need to insepct')
+end
+
+figure; hold on; axis equal
+plot3(loopSubscriptArray(:,1), loopSubscriptArray(:,2), loopSubscriptArray(:,3), '.')
+plot3(xTopOfLoop, yTopOfLoop, zTopOfLoop, 'rx')
+plot3(xBottomOfLoop, yBottomOfLoop, zBottomOfLoop, 'gx')
+
 %% Take top of connected curve.
+%Provided both ends of loop are connect this kind of finds one path and
+%ignores floaters...
+
 coordinatesOfLoop = zeros(smallVolumeSize(3)*2,3)*NaN;
 
 coordinatesOfLoop(1,:) = [xTopOfLoop, yTopOfLoop, zTopOfLoop];
@@ -524,7 +559,7 @@ for iStep = 2:smallVolumeSize(3)*2
         
         %plot3(coordinatesOfLoop(iStep,1), coordinatesOfLoop(iStep,2), coordinatesOfLoop(iStep,3), 'kx');
         
-    else
+    elseif length(tempIndex) > 1
         % If more than 1 point, take highest.
         tempIndex2 = find(testY(tempIndex) == max(testY(tempIndex)));
 
@@ -536,10 +571,17 @@ for iStep = 2:smallVolumeSize(3)*2
             %plot3(coordinatesOfLoop(iStep,1), coordinatesOfLoop(iStep,2), coordinatesOfLoop(iStep,3), 'go');
             
         else
-           %%% To add, if multiple high points, take closest to centreline 
+           tempDiffToCenter = abs(coordinatesOfLoop(iStep-1,1) + testX(tempIndex(tempIndex2)) - roughXCentre);
+            
+           tempIndex3 = find(tempDiffToCenter == min(tempDiffToCenter));
            
-           error('Multiple high points.');
-           
+           if length(tempIndex3) == 1
+               coordinatesOfLoop(iStep,:) = coordinatesOfLoop(iStep-1,:) + ...
+                    [testX(tempIndex(tempIndex2(tempIndex3))) testY(tempIndex(tempIndex2(tempIndex3))) ...
+                    testZ(tempIndex(tempIndex2(tempIndex3)))];
+           else
+               error('Multiple near centre points... FML');
+           end
         end 
     end
     
@@ -568,6 +610,8 @@ nIndex = length(loopIndexList); loopSubscriptArray = zeros(nIndex, 3);
 
 [loopSubscriptArray(:,1), loopSubscriptArray(:,2), loopSubscriptArray(:,3)] = ...
     ind2sub(smallVolumeSize, loopIndexList);
+
+plot3(loopSubscriptArray(:,1), loopSubscriptArray(:,2), loopSubscriptArray(:,3), 'm.')
 
 %% Now find centre-curve by slice.
 
@@ -659,6 +703,9 @@ for iSlice = slicesToUse
             % Add slice of curve and loop to curve volume.
             centreCurveVolume(:,:,iSlice) = curveSlice | loopVolume(:,:,iSlice);
 
+            %plot3(curveLineFull(:,1), curveLineFull(:,2), ...
+            %    iSlice*ones(size(curveLineFull,1),1), 'k.')
+            
             % Vertical continuity test removed, fast marching should fix.
         else
            % Start and end don't connect, just add exisiting loop. 
@@ -732,9 +779,12 @@ end
 tic
 curveNrb = nrbloft_nan(xArray(:, toInterp), yArray(:, toInterp), zArray(:, toInterp), 2);
 toc
+
+% 1st dimension is Y, 2nd dimension is Z
+nrbplot(curveNrb, [10, 50]);
 %% Put interpolated values into curve volume.
 %zToInterp = zBottomOfLoop-zTopOfLoop+1;
-zToInterp = max(max(zArray(:, toInterp)))-zTopOfLoop+1;
+zToInterp = max(max(zArray(:, toInterp)));
 
 %yToInterp = max(loopSubscriptArray(:,2));
 yToInterp = max(max(yArray(:, toInterp)));
@@ -815,6 +865,16 @@ for iSlice = zTopOfLoop:zToInterp
    end
 end
 
+% Get indexes again
+curveIndexList = find(centreCurveVolume);
+
+nIndex = length(curveIndexList); curveSubscriptArray = zeros(nIndex, 3);
+
+[curveSubscriptArray(:,1), curveSubscriptArray(:,2), curveSubscriptArray(:,3)] = ...
+    ind2sub(smallVolumeSize, curveIndexList);
+
+plot3(curveSubscriptArray(:,1), curveSubscriptArray(:,2), ...
+    curveSubscriptArray(:,3), 'm.');
 %% Extend curve, then place into main volume and re-calcualte exterior
 %Extend curve to include front and end of grain.
 
@@ -852,6 +912,14 @@ curveSubscriptArray(:,3) = curveSubscriptArray(:,3) + zBoundsNew(1) - 1;
 curveIndexList = sub2ind(volumeSize, curveSubscriptArray(:,1), curveSubscriptArray(:,2), ...
     curveSubscriptArray(:,3));
 
+refInds = find(grainVolumeAligned(curveIndexList));
+
+[~, ~, tempSlice] = ind2sub(volumeSize, refInds);
+
+figure;
+subplot(1,2,1); imshow(grainExterior(:,:,median(tempSlice)))
+title(sprintf('%i', median(tempSlice)))
+
 % Cut label volume along base curve
 grainVolumeAligned(curveIndexList) = 0;
 
@@ -882,7 +950,7 @@ for iRegion = 1:nRegions-1
 end
 
 % Should now have exterior along each side of split crease
-figure; imshow(sum(grainExterior(:,:,1623),3))
+subplot(1,2,2); imshow(grainExterior(:,:,median(tempSlice)))
 
 %% Now fill up form curve into exterior 
 % First, resize curve volume
@@ -963,32 +1031,31 @@ endCurveInds = find(centreCurveVolume(curveIndexList) == 3);
 
 mainInVolInds = find(grainVolumeAligned(curveIndexList));
 
-clear smallGrainExterior, clear smallGrainVolume, 
-clear loopVolume, clear centreCurveVolume
+%clear smallGrainExterior, clear smallGrainVolume, 
+%clear loopVolume, clear centreCurveVolume
 %% Test plot.
 figure; hold on; axis equal; set(gca, 'Clipping', 'off')
 
-line(xTopOfLoop*[1 1], [1 yTopOfLoop], zTopOfLoop*[1 1])
+line(xTopOfLoop*[1 1]+ xBoundsNew(1) - 1, [1 yTopOfLoop]+ yBoundsNew(1) - 1,...
+    zTopOfLoop*[1 1]+ zBoundsNew(1) - 1)
 
-line(xBottomOfLoop*[1 1], [1 yBottomOfLoop], zBottomOfLoop*[1 1])
+line(xBottomOfLoop*[1 1]+ xBoundsNew(1) - 1, [1 yBottomOfLoop]+ yBoundsNew(1) - 1,...
+    zBottomOfLoop*[1 1]+ zBoundsNew(1) - 1)
 
-%plot3(curveSubscriptArray(mainCurveInds,1), curveSubscriptArray(mainCurveInds,2), ...
-%    curveSubscriptArray(mainCurveInds,3), 'b.')
+plot3(curveSubscriptArray(mainCurveInds,1), curveSubscriptArray(mainCurveInds,2), ...
+   curveSubscriptArray(mainCurveInds,3), 'b.')
 
 plot3(curveSubscriptArray(topCurveInds,1), curveSubscriptArray(topCurveInds,2), ...
-    curveSubscriptArray(topCurveInds,3), 'rx')
+    curveSubscriptArray(topCurveInds,3), 'r.')
 
 plot3(curveSubscriptArray(endCurveInds,1), curveSubscriptArray(endCurveInds,2), ...
     curveSubscriptArray(endCurveInds,3), 'k.')
 
 plot3(curveSubscriptArray(mainInVolInds,1), curveSubscriptArray(mainInVolInds,2), ...
-    curveSubscriptArray(mainInVolInds,3), 'm.')
+    curveSubscriptArray(mainInVolInds,3), 'mx')
 
-plot3(loopSubscriptArray(:,1), loopSubscriptArray(:,2),...
-   loopSubscriptArray(:,3), 'go'); 
-
-% 1st dimension is Y, 2nd dimension is Z
-%nrbplot(curveNrb, [10, 50]);
+plot3(loopSubscriptArray(:,1)+ xBoundsNew(1) - 1, loopSubscriptArray(:,2)+ yBoundsNew(1) - 1,...
+   loopSubscriptArray(:,3)+ zBoundsNew(1) - 1, 'go'); 
 
 %% Remove cut up from both exterior and main volume
 
@@ -1990,7 +2057,7 @@ for iPoint = 1:nPoints
     end
 end
 
-save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i_wEndo_distOnFull_voxelFractions_updateSkimming_splitCalcs', 'distanceMatrix', ...
+save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_%i_%i_%i_%i_wEndo_distOnFull_voxelFractions_updateSkimming_splitCalcs', dataName, ...
         edgeDistance, surfaceDistance, sparsePointsDistance, normalRadius), ...
     'edgeDistance', 'surfaceDistance', 'sparsePointsDistance', 'normalRadius',...    
     'distanceMatrix', 'subscriptsToInterpolate', 'interpolatedIdentity',... 
