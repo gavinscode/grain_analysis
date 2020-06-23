@@ -12,7 +12,10 @@ ALEURONE_INDEX = 2; % Material index.
 ENDOSPERM_INDEX = 1;
 GERM_INDEX = 3;
 turnXY = -1; %Set to get correct rotation of crease, should face down
-roundOnLoop = 8;
+roundOnLoop = 16;
+removeLowest = 1;
+padLow = [20 0 0];
+padHigh = [0 0 0];
 
 %OB_6 test
 %labelDirectory = 'C:\Grain_temp\OB6_test\Labels';
@@ -23,11 +26,17 @@ roundOnLoop = 8;
 % GERM_INDEX = 3;
 %turnXY = 1;
 %roundOnLoop = 64; % Can be set back to 8?
+%removeLowest = 2;
+%padLow = [0 0 0];
+%padHigh = [0 0 0];
 
 % Loading tiff stack takes a while.
 grainVolume = loadtiffstack(labelDirectory, 1);
 
-%grainVolume = grainVolume(:,1:500,:);
+% pad volume
+if any(padLow); grainVolume = padarray(grainVolume, padLow, 0, 'pre'); end
+
+if any(padHigh); grainVolume = padarray(grainVolume, padHigh, 0, 'post'); end
 
 volumeSize = size(grainVolume);
 
@@ -51,10 +60,14 @@ edgeDistance = 20; %10
 surfaceDistance = 50; %50
 
 %Not, sparse distance must be less then others for code to work
-sparsePointsDistance = 2; %3
+%OM16, will thrash on 2 during distance map, maybe remove parallel
+sparsePointsDistance = 4; %3 
 
 % Flags
 testPlotNormals = 0;
+
+%OM1_6 has a short cut, OB6 does not, probably best to stop... will add 10 minutes
+stopShortCuts = 1;
 
 maxAleuroneThickness = 75; %In voxels - previous limit at 20
 
@@ -78,6 +91,10 @@ curveStep = 5;
 % so interp is at curveStepxstep slices
 %%% Set to 5 for good runs
 nrbStep = 10;
+
+% offsetCut in by this amount, otherwise just steps in 10 from ends.
+    %i.e. total cut in 10 + offsetCut
+offsetCut = 40;
 %% Get voxels on exterior of orignal grain by overlap to exterior.
 % Get pixels in grain.
 grainIndexList = find(grainVolume);
@@ -86,8 +103,6 @@ nIndex = length(grainIndexList(1:50:end)); grainSubscriptArray = zeros(nIndex, 3
 
 [grainSubscriptArray(:,1), grainSubscriptArray(:,2), grainSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, grainIndexList(1:50:end));
-
-
 
 % Get long axis of grain with PCA.
 grainAxisArray = pca(grainSubscriptArray);
@@ -102,8 +117,6 @@ transform2Vertical = matrix2rotatevectors([0, 0, 1], grainLongAxis);
 
 transform2Up = matrix2rotatevectors([0, turnXY, 0], grainCreaseAxis*transform2Vertical);
 
-
-
 % Apply transformation to grain in volume.
 temp = zeros(4,4); temp(4,4) = 1;
 
@@ -115,11 +128,36 @@ M3 = temp; M3(1:3,1:3) = transform2Up;
 
 M4 = make_transformation_matrix(volumeSize/2 - grainCenter);
 
+% Tried to test if bounds get exceeded - results do not match affine-transform...
+% grainSubscriptArrayRotating = [grainSubscriptArray-volumeSize/2, ones(nIndex,1)];
+% 
+% grainSubscriptArrayRotating = grainSubscriptArrayRotating*M1*M2*M3*M4;
+% 
+% grainSubscriptArrayRotating = grainSubscriptArrayRotating(:,1:3) + volumeSize/2;
+
+% Pad adjust centres
+volumeSize = size(grainVolume);
+
 grainVolumeAligned = uint8( affine_transform_full(single(grainVolume), M1*M2*M3*M4, 5));
 
 %%% Note small holes appear after affine transform, close fixes these. 
 %%% Probably bug with nearest neighbour interp I added to affine transform c file
 grainVolumeAligned = imclose(grainVolumeAligned, STREL_6_CONNECTED);
+
+% Check for touch on borders
+if sum(sum( any(grainVolumeAligned(1,:,:)))); error('Touch on x 1'); end
+
+if sum(sum( any(grainVolumeAligned(end,:,:)))); error('Touch on X end'); end
+
+if sum(sum( any(grainVolumeAligned(:,1,:)))); error('Touch on Y 1'); end
+
+if sum(sum( any(grainVolumeAligned(:,end,:)))); error('Touch on Y end'); end
+
+if sum(sum( any(grainVolumeAligned(:,:,1)))); error('Touch on Z 1'); end
+
+if sum(sum( any(grainVolumeAligned(:,:,end)))); error('Touch on Z end'); end
+
+%  figure; imshow(grainVolumeAligned(:,:,1375)*100)
 
 % Get exterior voxles
 %%% ADD FUNCTION for this and replace in loop.
@@ -157,8 +195,6 @@ nIndex = length(surfaceIndexList); grainSurfaceSubscriptArray = zeros(nIndex, 3)
 
 [grainSurfaceSubscriptArray(:,1), grainSurfaceSubscriptArray(:,2), grainSurfaceSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, surfaceIndexList);
-
-
 
 % Get aleurone surface subscripts.
 aleuroneSurfaceIndexList = find(grainExterior & grainVolumeAligned == ALEURONE_INDEX);
@@ -458,11 +494,7 @@ for iSlice = 1:smallVolumeSize(3)
     end
 end
 
-% Extrapolate polygon to top and bottom of volume
-
-
-% Calculate distance maps - note polarity of mask is opposite when using bwdist
-%distanceFromPlane = bwdistgeodesic(~grainMask, basePlaneVolume, 'quasi-euclidean');
+% Calculate distance maps 
 tic
 distanceFromGrain = bwdist(grainMask, 'quasi-euclidean');
 toc
@@ -470,7 +502,7 @@ toc
 % Need to set interior to max to prevent traversal. 
 distanceFromGrain(grainMask) = Inf;
 
-% Graydist takes a long time. Squared to force closer to grain.
+% Graydist takes a long time. Squared to force closer to grain (works?).
 tic
 distanceFromTop = graydist(distanceFromGrain.^2, sub2ind(smallVolumeSize, ...
     xTopOfLoop, yTopOfLoop, zTopOfLoop), 'quasi-euclidean');
@@ -483,19 +515,35 @@ toc
 
 dMap = distanceFromTop + distanceFromBottom;
 
-clear distanceFromTop, clear distanceFromBottom
-
 % Round to lower precision to prevent floating point errors.
-%%% Note, changed from 8 to 64 as loop doesn't reach end,
+%%% Note, changed from 64 to 8 as loop doesn't reach end,
 %%% Causes some floaters, but no gaps. Not guaranteed to work for all...
-dMap = round(dMap * roundOnLoop)/roundOnLoop;
+dMapRound = round(dMap * roundOnLoop)/roundOnLoop;
 
-dMap(isnan(dMap)) = Inf;
+dMapRound(isnan(dMapRound)) = Inf;
 
 % Reginal minima should define connection.
-loopVolume = imregionalmin(dMap);
+loopVolume = imregionalmin(dMapRound);
 
-clear dMap
+% Take largest connected region of loop.
+tempCC = bwconncomp(loopVolume, 26);
+
+tempStats = regionprops(tempCC, 'PixelIdxList');
+
+% Get number of voxels in each region. 
+nRegions = length(tempStats); voxelsPerRegionArray = zeros(nRegions,1);
+
+for iRegion = 1:nRegions
+    voxelsPerRegionArray(iRegion) = length(tempStats(iRegion).PixelIdxList);
+end
+
+% Largest will generally be much larger than others.
+[~, tempIndex] = max(voxelsPerRegionArray); tempStats(tempIndex) = [];
+
+% Remove other regions from volume.
+for iRegion = 1:nRegions-1
+    loopVolume(tempStats(iRegion).PixelIdxList) = 0;
+end
 
 loopIndexList = find(loopVolume);
 
@@ -504,20 +552,77 @@ nIndex = length(loopIndexList); loopSubscriptArray = zeros(nIndex, 3);
 [loopSubscriptArray(:,1), loopSubscriptArray(:,2), loopSubscriptArray(:,3)] = ...
     ind2sub(smallVolumeSize, loopIndexList);
 
+figure; subplot(1,2,1); hold on; axis equal
+
+plot3(loopSubscriptArray(:,1), loopSubscriptArray(:,2), loopSubscriptArray(:,3), 'b.')
+
+plot3(xTopOfLoop, yTopOfLoop, zTopOfLoop, 'rx')
+
+plot3(xBottomOfLoop, yBottomOfLoop, zBottomOfLoop, 'gx')
+
+subplot(1,2,2)
+
+hist(dMap(loopIndexList),100)
+
 % Check top and bottom of loop are in loop volume
 if ~loopVolume(xTopOfLoop, yTopOfLoop, zTopOfLoop) | ... 
         ~loopVolume(xBottomOfLoop, yBottomOfLoop, zBottomOfLoop)
-    
     
     % may need to adjsut round on loop value
     error('Loop did not reach ends, need to insepct')
 end
 
-figure; hold on; axis equal
-plot3(loopSubscriptArray(:,1), loopSubscriptArray(:,2), loopSubscriptArray(:,3), '.')
-plot3(xTopOfLoop, yTopOfLoop, zTopOfLoop, 'rx')
-plot3(xBottomOfLoop, yBottomOfLoop, zBottomOfLoop, 'gx')
+clear dMapRound, clear distanceFromTop, clear distanceFromBottom
+%% Can have a short cut if part of loop concave which is not solved in following section
 
+if stopShortCuts
+   % Take two largest values from histogram 
+   [nValues, xCenter] = hist(dMap(loopIndexList),100);
+
+   xDiff = diff(xCenter);
+   
+   % For some reasons values not equally spaced...
+   xDiff = mean(xDiff (xDiff ~= 0));
+   
+   [nValuesSorted, valuesSortedIndex] = sort(nValues, 'descend');
+   
+   firstInds = find(dMap(loopIndexList) >= xCenter(valuesSortedIndex(1))& ...
+       dMap(loopIndexList) < xCenter(valuesSortedIndex(1)) + xDiff);
+   
+   secondInds = find(dMap(loopIndexList) >= xCenter(valuesSortedIndex(2)) & ...
+       dMap(loopIndexList) < xCenter(valuesSortedIndex(2)) + xDiff);
+   
+   %nValuesSorted(1:2)
+   
+   %[length(firstInds) length(secondInds)]
+   
+   %Select lowest to remove
+   %%% Strictly speaking, the one to remove should have higher distance
+   %%% values, but this may not be guaranteed
+   
+   if mean(loopSubscriptArray(firstInds,2)) < mean(loopSubscriptArray(secondInds,2))
+   
+       toRemove = firstInds;
+   else
+       toRemove = secondInds;
+   end
+   
+   subplot(1,2,1)
+   
+   plot3(loopSubscriptArray(toRemove,1), loopSubscriptArray(toRemove,2), ...
+       loopSubscriptArray(toRemove,3), 'rx')
+   
+   loopVolume(loopIndexList(toRemove)) = [];
+   
+   loopIndexList(toRemove) = [];
+   
+   loopSubscriptArray(toRemove, 1) = [];
+   
+   loopSubscriptArray(toRemove, 2) = [];
+   
+   loopSubscriptArray(toRemove, 3) = [];
+end
+clear dMap
 %% Take top of connected curve.
 %Provided both ends of loop are connect this kind of finds one path and
 %ignores floaters...
@@ -542,11 +647,15 @@ for iStep = 2:smallVolumeSize(3)*2
     % Get all distances to the adjacent points of previous point.
     distanceArray = zeros(26,1);
     
+    distanceFromGrainArray = zeros(26,1);
+    
     for jPoint = 1:26
         
         distanceArray(jPoint) = distanceFromEnd(coordinatesOfLoop(iStep-1,1)+testX(jPoint), ...
                coordinatesOfLoop(iStep-1,2)+testY(jPoint), coordinatesOfLoop(iStep-1,3)+testZ(jPoint)); 
            
+        distanceFromGrainArray(jPoint) = distanceFromGrain(coordinatesOfLoop(iStep-1,1)+testX(jPoint), ...
+               coordinatesOfLoop(iStep-1,2)+testY(jPoint), coordinatesOfLoop(iStep-1,3)+testZ(jPoint));   
     end
 
     % If just one point, take shortest.
@@ -560,29 +669,44 @@ for iStep = 2:smallVolumeSize(3)*2
         %plot3(coordinatesOfLoop(iStep,1), coordinatesOfLoop(iStep,2), coordinatesOfLoop(iStep,3), 'kx');
         
     elseif length(tempIndex) > 1
-        % If more than 1 point, take highest.
-        tempIndex2 = find(testY(tempIndex) == max(testY(tempIndex)));
-
+        % If more than 1 take, closest to grain
+        %%% Add closest test as curve that diverged from main grain could
+        %%% be slected, but didn't help much...
+        
+        tempIndex2 = find(distanceFromGrainArray(tempIndex) == min(distanceFromGrainArray(tempIndex)));
+       
         if length(tempIndex2) == 1
-            
             coordinatesOfLoop(iStep,:) = coordinatesOfLoop(iStep-1,:) + ...
-                [testX(tempIndex(tempIndex2)) testY(tempIndex(tempIndex2)) testZ(tempIndex(tempIndex2))];
+                    [testX(tempIndex(tempIndex2)) testY(tempIndex(tempIndex2)) testZ(tempIndex(tempIndex2))];
 
-            %plot3(coordinatesOfLoop(iStep,1), coordinatesOfLoop(iStep,2), coordinatesOfLoop(iStep,3), 'go');
-            
         else
-           tempDiffToCenter = abs(coordinatesOfLoop(iStep-1,1) + testX(tempIndex(tempIndex2)) - roughXCentre);
-            
-           tempIndex3 = find(tempDiffToCenter == min(tempDiffToCenter));
-           
-           if length(tempIndex3) == 1
-               coordinatesOfLoop(iStep,:) = coordinatesOfLoop(iStep-1,:) + ...
+            % If still more than 1 point, take highest.
+            tempIndex3 = find(testY(tempIndex(tempIndex2)) == max(testY(tempIndex(tempIndex2))));
+
+            if length(tempIndex3) == 1
+
+                coordinatesOfLoop(iStep,:) = coordinatesOfLoop(iStep-1,:) + ...
                     [testX(tempIndex(tempIndex2(tempIndex3))) testY(tempIndex(tempIndex2(tempIndex3))) ...
                     testZ(tempIndex(tempIndex2(tempIndex3)))];
-           else
-               error('Multiple near centre points... FML');
-           end
-        end 
+
+                %plot3(coordinatesOfLoop(iStep,1), coordinatesOfLoop(iStep,2), coordinatesOfLoop(iStep,3), 'go');
+
+            else
+
+               % If still, still more than 1, take closest to centre. 
+               tempDiffToCenter = abs(coordinatesOfLoop(iStep-1,1) + testX(tempIndex(tempIndex2(tempIndex3))) - roughXCentre);
+
+               tempIndex4 = find(tempDiffToCenter == min(tempDiffToCenter));
+
+               if length(tempIndex4) == 1
+                   coordinatesOfLoop(iStep,:) = coordinatesOfLoop(iStep-1,:) + ...
+                        [testX(tempIndex(tempIndex2(tempIndex3(tempIndex4)))) testY(tempIndex(tempIndex2(tempIndex3(tempIndex4)))) ...
+                        testZ(tempIndex(tempIndex2(tempIndex3(tempIndex4))))];
+               else
+                   error('Multiple near centre points...');
+               end
+            end 
+        end
     end
     
     % If end point reached, break early.
@@ -716,7 +840,7 @@ for iSlice = slicesToUse
     end
 end
 
-clear distanceFromGrain, 
+clear distanceFromGrain, clear grainMask
 
 %% Interpolate form using lofted b-spline.
 curveIndexList = find(centreCurveVolume);
@@ -916,10 +1040,6 @@ refInds = find(grainVolumeAligned(curveIndexList));
 
 [~, ~, tempSlice] = ind2sub(volumeSize, refInds);
 
-figure;
-subplot(1,2,1); imshow(grainExterior(:,:,median(tempSlice)))
-title(sprintf('%i', median(tempSlice)))
-
 % Cut label volume along base curve
 grainVolumeAligned(curveIndexList) = 0;
 
@@ -948,9 +1068,6 @@ end
 for iRegion = 1:nRegions-1
     grainExterior(tempStats(iRegion).PixelIdxList) = 0;
 end
-
-% Should now have exterior along each side of split crease
-subplot(1,2,2); imshow(grainExterior(:,:,median(tempSlice)))
 
 %% Now fill up form curve into exterior 
 % First, resize curve volume
@@ -1003,7 +1120,7 @@ for iSlice = 1:volumeSize(3)
 
                 % Stop once non- edge or air reach to prevent disconnection.
                 % Only do if in main portion of grain, borders should extend up
-                elseif iSlice > zTopOfLoop && iSlice < zToInterp
+                elseif iSlice > (zTopOfLoop + offsetCut) && iSlice < (zToInterp - offsetCut)
                     %if volumeColumn(kPoint) == ENDOSPERM_INDEX || volumeColumn(kPoint) == GERM_INDEX
                     
                     % plot3(tempSubscriptArray(maxIndexList(jIndex),1), tempSubscriptArray(maxIndexList(jIndex),2)+kPoint-1, iSlice, 'mx')
@@ -1031,6 +1148,30 @@ endCurveInds = find(centreCurveVolume(curveIndexList) == 3);
 
 mainInVolInds = find(grainVolumeAligned(curveIndexList));
 
+%% Test if curve ends are connected. 
+testVolume = zeros(volumeSize);
+
+testVolume(curveIndexList(mainInVolInds)) = 1;
+
+tempCC = bwconncomp(testVolume, 26);
+
+tempStats = regionprops(tempCC, 'PixelList');
+
+nRegions = length(tempStats);
+
+%%% Get regions for top and bottom to add warning.
+
+% plot regions for now 
+figure; hold on; axis equal
+
+cols = lines(nRegions);
+
+for iRegion = 1:nRegions
+    plot3(tempStats(iRegion).PixelList(:,1), tempStats(iRegion).PixelList(:,2), ...
+        tempStats(iRegion).PixelList(:,3), '.');
+    
+end
+
 %clear smallGrainExterior, clear smallGrainVolume, 
 %clear loopVolume, clear centreCurveVolume
 %% Test plot.
@@ -1057,6 +1198,10 @@ plot3(curveSubscriptArray(mainInVolInds,1), curveSubscriptArray(mainInVolInds,2)
 plot3(loopSubscriptArray(:,1)+ xBoundsNew(1) - 1, loopSubscriptArray(:,2)+ yBoundsNew(1) - 1,...
    loopSubscriptArray(:,3)+ zBoundsNew(1) - 1, 'go'); 
 
+figure; hold on; axis equal; set(gca, 'Clipping', 'off')
+
+plot3(curveSubscriptArray(mainInVolInds,1), curveSubscriptArray(mainInVolInds,2), ...
+    curveSubscriptArray(mainInVolInds,3), 'mx')
 %% Remove cut up from both exterior and main volume
 
 %Just remove from volume where it overlap exterior
@@ -1264,7 +1409,17 @@ end
 % Remove 2 with lowest Z value but add to seperate volume
 endospermCreaseExterior = zeros(volumeSize, 'logical');
 
-for iRegion = 1:2
+figure; hold on; axis equal
+for iRegion = 1:4
+    plot3(tempStats(sortLength(sortMinZ(iRegion))).PixelList(:,1), tempStats(sortLength(sortMinZ(iRegion))).PixelList(:,2), ...
+        tempStats(sortLength(sortMinZ(iRegion))).PixelList(:,3), '.')
+end
+title(sprintf('Will remove lowest %i', removeLowest));
+
+%%% Would be good to add a test to see which large regions to consider, 
+%%% and which low ones to remove
+
+for iRegion = 1:removeLowest
     endospermExterior(tempStats(sortLength(sortMinZ(iRegion))).PixelIdxList) = 0;
     
     endospermCreaseExterior(tempStats(sortLength(sortMinZ(iRegion))).PixelIdxList) = 1;
@@ -1598,6 +1753,12 @@ plot3(endospermSurfaceSubscriptArray(1:1:end,1), endospermSurfaceSubscriptArray(
 % Loading tiff stack takes a while.
 greyVolume = loadtiffstack(greyDirectory, 1);
 
+if any(padLow); greyVolume = padarray(greyVolume, padLow, 0, 'pre'); end
+
+if any(padHigh); greyVolume = padarray(greyVolume, padHigh, 0, 'post'); end
+
+if size(greyVolume) ~= volumeSize; error('Size mismatch'); end
+
 greyVolumeAligned = uint8( affine_transform_full(single(greyVolume), M1*M2*M3*M4, 1));
 
 % Affine transform with linear interp. does not seem to have small holes problem.
@@ -1656,7 +1817,6 @@ parfor iPoint = 1:nPoints %
     
     % Select points based on distance map to prevent picking points on both sides of crease.
     indexsToUseByPoint{iPoint} = find(dMap(totalIndexList) < normalRadius*2);
-    
 end
   
 save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_temp', 'distanceMatrix'), ...
@@ -1668,6 +1828,10 @@ save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_temp', 'distanc
 %%% Note this has to be done using distances from map, if done using 3D
 %%% distance points on opposite sides of crease can be linked
 %%% So, required splitting for loop between distance map and normals
+
+if nPoints ~= size(distanceMatrixSparse,1) | nSparsePoints ~= size(distanceMatrixSparse,2)
+    error('Mismatched sizes and matrix - load wrong temp file')
+end
 
 pointToSparseLinks = cell(nPoints,1);
 
@@ -1699,7 +1863,7 @@ grid3D.maxBound = volumeSize';
 
 % Calculate normals to get thickness
 parfor iPoint = 1:nPoints %
-%for iPoint = 1761:nPoints
+%for iPoint = 25; %1761:nPoints
     % Make list with this location and sparse points
     sparseLinks = pointToSparseLinks{iPoint};
     
@@ -1846,17 +2010,17 @@ parfor iPoint = 1:nPoints %
 %                     [0 tempNormal(3)*200]+currentSubscript(3), 'color', 'r')
 
                 
-%                 figure; imshow(grainVolumeAlignedCut(:,:,currentSubscript(3))*100)
-%                 hold on
-%                 
+                figure; imshow(grainVolumeAlignedCut(:,:,currentSubscript(3))*100)
+                hold on
+                
 %                 line( [0 tempNormal(2)*200]+currentSubscript(2),  ...
 %                     [0 tempNormal(1)*200]+currentSubscript(1),...
 %                         'color', 'r')
-%                     
-%                 plot(currentSubscript(2), currentSubscript(1) , 'c*')
-% 
-%                 plot(combinedSurfaceSubscripts(indexListInRange,2),...
-%                     combinedSurfaceSubscripts(indexListInRange,1), '.')
+                    
+                plot(currentSubscript(2), currentSubscript(1) , 'c*')
+
+                plot(combinedSurfaceSubscripts(indexListInRange,2),...
+                    combinedSurfaceSubscripts(indexListInRange,1), '.')
             end
 
             %Draw line in voxel space.
@@ -1948,8 +2112,14 @@ parfor iPoint = 1:nPoints %
                            warning('%i %i - Too much air before', iPoint, jSubscript) 
                         end    
                     else
-                        % This should not happen, as other material will have interior surface
-                        error('%i %i - Unexpected materials before intersect', iPoint, jSubscript)
+                        % This rarely happens, but can occur if normal leaves via exterior, reenters via endosperm, 
+                        % then hits interior intersect... wtf?
+                        
+                         interiorPoints = [];
+                           
+                         intersectsCleared = 1;
+                        
+                         warning('%i %i - Unexpected materials before intersect', iPoint, jSubscript)
                     end
                 end
             end
@@ -2083,7 +2253,23 @@ for iPoint = 1:nPoints
     line([0 50]*tempNormal(1) + startPoint(1), [0 50]*tempNormal(2) + startPoint(2), ...
         [0 50]*tempNormal(3) + startPoint(3)); 
 end
-    
+
+%% plot distance map to to test
+figure; hold on; axis equal;
+
+ind = find((subscriptsToInterpolate(:,1)) == 434 & (subscriptsToInterpolate(:,2) == 301) & ...
+    (subscriptsToInterpolate(:,3) == 35));
+
+if isempty(ind)
+   [~, ind] = min(subscriptsToInterpolate(:,2)); 
+end
+
+fscatter3(subscriptsToInterpolate(:,1), subscriptsToInterpolate(:,2), ...
+    subscriptsToInterpolate(:,3),  distanceMatrix(ind,:), jet(100))
+
+plot3(subscriptsToInterpolate(ind,1), subscriptsToInterpolate(ind,2), ...
+    subscriptsToInterpolate(ind,3), 'rx')
+
 %% Calaculate integrals under surface.
 
 pointIntensityProfile = zeros(nPoints, numberOfBlocks)*NaN;
