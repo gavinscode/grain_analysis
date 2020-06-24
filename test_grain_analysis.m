@@ -13,7 +13,7 @@ ENDOSPERM_INDEX = 1;
 GERM_INDEX = 3;
 turnXY = -1; %Set to get correct rotation of crease, should face down
 roundOnLoop = 16;
-removeLowest = 1;
+removeLowest = 2;
 padLow = [20 0 0];
 padHigh = [0 0 0];
 
@@ -581,7 +581,7 @@ if stopShortCuts
 
    xDiff = diff(xCenter);
    
-   % For some reasons values not equally spaced...
+   % Some values are equal ...?
    xDiff = mean(xDiff (xDiff ~= 0));
    
    [nValuesSorted, valuesSortedIndex] = sort(nValues, 'descend');
@@ -607,20 +607,46 @@ if stopShortCuts
        toRemove = secondInds;
    end
    
-   subplot(1,2,1)
+   % It can be that region is not continous and has small breaks in other loop
+   % So select largest part to remove
+   tempVolume = loopVolume*0;
    
-   plot3(loopSubscriptArray(toRemove,1), loopSubscriptArray(toRemove,2), ...
+   tempVolume(loopIndexList(toRemove)) = 1;
+   
+   tempCC = bwconncomp(tempVolume, 26);
+
+    tempStats = regionprops(tempCC, 'PixelIdxList');
+
+    % Get number of voxels in each region. 
+    nRegions = length(tempStats); voxelsPerRegionArray = zeros(nRegions,1);
+
+    for iRegion = 1:nRegions
+        voxelsPerRegionArray(iRegion) = length(tempStats(iRegion).PixelIdxList);
+    end
+
+    % Largest will generally be much larger than others.
+    [~, tempIndex] = max(voxelsPerRegionArray); tempStats(tempIndex) = [];
+
+    % Remove other regions from volume.
+    for iRegion = 1:nRegions-1
+        tempVolume(tempStats(iRegion).PixelIdxList) = 0;
+    end
+
+    % Remove any to remove not in main loop 
+    toRemove(tempVolume(loopIndexList(toRemove)) == 0) = [];
+   
+    subplot(1,2,1)
+   
+    plot3(loopSubscriptArray(toRemove,1), loopSubscriptArray(toRemove,2), ...
        loopSubscriptArray(toRemove,3), 'rx')
    
-   loopVolume(loopIndexList(toRemove)) = [];
+    loopVolume(loopIndexList(toRemove)) = 0;
    
-   loopIndexList(toRemove) = [];
+    loopIndexList(toRemove) = [];
    
-   loopSubscriptArray(toRemove, 1) = [];
-   
-   loopSubscriptArray(toRemove, 2) = [];
-   
-   loopSubscriptArray(toRemove, 3) = [];
+    loopSubscriptArray(toRemove, :) = [];
+
+    clear tempVolume
 end
 clear dMap
 %% Take top of connected curve.
@@ -658,6 +684,10 @@ for iStep = 2:smallVolumeSize(3)*2
                coordinatesOfLoop(iStep-1,2)+testY(jPoint), coordinatesOfLoop(iStep-1,3)+testZ(jPoint));   
     end
 
+    if all(isnan(distanceArray))
+       error('Loop thinner is lost') 
+    end
+    
     % If just one point, take shortest.
     tempIndex = find(distanceArray == min(distanceArray));
     
@@ -735,7 +765,7 @@ nIndex = length(loopIndexList); loopSubscriptArray = zeros(nIndex, 3);
 [loopSubscriptArray(:,1), loopSubscriptArray(:,2), loopSubscriptArray(:,3)] = ...
     ind2sub(smallVolumeSize, loopIndexList);
 
-plot3(loopSubscriptArray(:,1), loopSubscriptArray(:,2), loopSubscriptArray(:,3), 'm.')
+plot3(loopSubscriptArray(:,1), loopSubscriptArray(:,2), loopSubscriptArray(:,3), 'mo')
 
 %% Now find centre-curve by slice.
 
@@ -1069,6 +1099,19 @@ for iRegion = 1:nRegions-1
     grainExterior(tempStats(iRegion).PixelIdxList) = 0;
 end
 
+% Change offsets back
+xTopOfLoop = xTopOfLoop + xBoundsNew(1) - 1;
+yTopOfLoop = yTopOfLoop + yBoundsNew(1) - 1;
+zTopOfLoop = zTopOfLoop + zBoundsNew(1) - 1;
+
+xBottomOfLoop = xBottomOfLoop + xBoundsNew(1) - 1;
+yBottomOfLoop = yBottomOfLoop + yBoundsNew(1) - 1;
+zBottomOfLoop = zBottomOfLoop + zBoundsNew(1) - 1;
+
+loopSubscriptArray(:,1) = loopSubscriptArray(:,1) + xBoundsNew(1) - 1;
+loopSubscriptArray(:,2) = loopSubscriptArray(:,2) + yBoundsNew(1) - 1;
+loopSubscriptArray(:,3) = loopSubscriptArray(:,3) + zBoundsNew(1) - 1;
+
 %% Now fill up form curve into exterior 
 % First, resize curve volume
 centreCurveVolume = zeros(volumeSize, 'uint8');
@@ -1155,11 +1198,9 @@ testVolume(curveIndexList(mainInVolInds)) = 1;
 
 tempCC = bwconncomp(testVolume, 26);
 
-tempStats = regionprops(tempCC, 'PixelList');
+tempStats = regionprops(tempCC, 'PixelList','PixelIdxList');
 
 nRegions = length(tempStats);
-
-%%% Get regions for top and bottom to add warning.
 
 % plot regions for now 
 figure; hold on; axis equal
@@ -1172,16 +1213,42 @@ for iRegion = 1:nRegions
     
 end
 
-%clear smallGrainExterior, clear smallGrainVolume, 
-%clear loopVolume, clear centreCurveVolume
+% Test top and bottom connection
+[~, topPoint] = min(curveSubscriptArray(mainInVolInds,3));
+
+[~, bottomPoint] = max(curveSubscriptArray(mainInVolInds,3)); 
+
+topRegion = 0;
+
+bottomRegion = 0;
+
+for iRegion = 1:nRegions
+   
+    topIn = find(tempStats(iRegion).PixelIdxList == curveIndexList(mainInVolInds(topPoint)));
+
+    bottomIn = find(tempStats(iRegion).PixelIdxList == curveIndexList(mainInVolInds(bottomPoint)));
+    
+    if ~isempty(topIn) 
+        topRegion = iRegion;
+    end
+    
+    if  ~isempty(bottomIn)
+        bottomRegion = iRegion;
+    end
+end
+
+if topRegion ~= bottomRegion
+    error('Top and bottom in different regions of loop')
+end    
+
+clear smallGrainExterior, clear smallGrainVolume, 
+clear loopVolume, clear centreCurveVolume, clear testVolume
 %% Test plot.
 figure; hold on; axis equal; set(gca, 'Clipping', 'off')
 
-line(xTopOfLoop*[1 1]+ xBoundsNew(1) - 1, [1 yTopOfLoop]+ yBoundsNew(1) - 1,...
-    zTopOfLoop*[1 1]+ zBoundsNew(1) - 1)
+line(xTopOfLoop*[1 1], [1 yTopOfLoop], zTopOfLoop*[1 1])
 
-line(xBottomOfLoop*[1 1]+ xBoundsNew(1) - 1, [1 yBottomOfLoop]+ yBoundsNew(1) - 1,...
-    zBottomOfLoop*[1 1]+ zBoundsNew(1) - 1)
+line(xBottomOfLoop*[1 1], [1 yBottomOfLoop], zBottomOfLoop*[1 1])
 
 plot3(curveSubscriptArray(mainCurveInds,1), curveSubscriptArray(mainCurveInds,2), ...
    curveSubscriptArray(mainCurveInds,3), 'b.')
@@ -1195,13 +1262,13 @@ plot3(curveSubscriptArray(endCurveInds,1), curveSubscriptArray(endCurveInds,2), 
 plot3(curveSubscriptArray(mainInVolInds,1), curveSubscriptArray(mainInVolInds,2), ...
     curveSubscriptArray(mainInVolInds,3), 'mx')
 
-plot3(loopSubscriptArray(:,1)+ xBoundsNew(1) - 1, loopSubscriptArray(:,2)+ yBoundsNew(1) - 1,...
-   loopSubscriptArray(:,3)+ zBoundsNew(1) - 1, 'go'); 
+% plot3(loopSubscriptArray(:,1), loopSubscriptArray(:,2),...
+%    loopSubscriptArray(:,3), 'go'); 
 
-figure; hold on; axis equal; set(gca, 'Clipping', 'off')
-
-plot3(curveSubscriptArray(mainInVolInds,1), curveSubscriptArray(mainInVolInds,2), ...
-    curveSubscriptArray(mainInVolInds,3), 'mx')
+% figure; hold on; axis equal; set(gca, 'Clipping', 'off')
+% 
+% plot3(curveSubscriptArray(mainInVolInds,1), curveSubscriptArray(mainInVolInds,2), ...
+%     curveSubscriptArray(mainInVolInds,3), 'mx')
 %% Remove cut up from both exterior and main volume
 
 %Just remove from volume where it overlap exterior
@@ -1292,51 +1359,82 @@ nIndex = length(germSurfaceIndexList); germSurfaceSubscriptArray = zeros(nIndex,
 [germSurfaceSubscriptArray(:,1), germSurfaceSubscriptArray(:,2), germSurfaceSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, germSurfaceIndexList);
 
-clear germExterior
 %% Get exterior endosperm surface except for crease
 endospermExterior = grainExterior & (grainVolumeAligned == ENDOSPERM_INDEX);
 
-% Take tips of aleurone points.
-curveCentre = mean(curveSubscriptArray(:,1));
+% Get edges of aleurone and germ onto endosperm interaface
+aleuroneInterface = imdilate(aleuroneExterior, STREL_18_CONNECTED) & endospermExterior;
 
-tempInd = find(aleuroneSurfaceSubscriptArray(:,1) < curveCentre);
+aleuroneBorderIndexList = find(aleuroneInterface);
 
-[~, topLeftTipInd] = max(aleuroneSurfaceSubscriptArray(tempInd,3));
+nIndex = length(aleuroneBorderIndexList); aleuroneBorderSubscriptArray = zeros(nIndex, 3);
+
+[aleuroneBorderSubscriptArray(:,1), aleuroneBorderSubscriptArray(:,2), aleuroneBorderSubscriptArray(:,3)] = ...
+    ind2sub(volumeSize, aleuroneBorderIndexList);
+
+
+germInterface = imdilate(germExterior, STREL_18_CONNECTED) & endospermExterior;
+
+germBorderIndexList = find(germInterface);
+
+nIndex = length(germBorderIndexList); germBorderSubscriptArray = zeros(nIndex, 3);
+
+[germBorderSubscriptArray(:,1), germBorderSubscriptArray(:,2), germBorderSubscriptArray(:,3)] = ...
+    ind2sub(volumeSize, germBorderIndexList);
+
+clear aleuroneInterface, clear germSurfaceIndexList
+
+% Take tips of aleurone points - on endosperm inteface
+curveCentre = mean(loopSubscriptArray(:,1));
+
+tempInd = find(aleuroneBorderSubscriptArray(:,1) < curveCentre);
+
+[~, topLeftTipInd] = max(aleuroneBorderSubscriptArray(tempInd,3));
 
 topLeftTipInd = tempInd(topLeftTipInd);
 
-tempInd = find(aleuroneSurfaceSubscriptArray(:,1) > curveCentre);
+tempInd = find(aleuroneBorderSubscriptArray(:,1) > curveCentre);
 
-[~, topRightTipInd] = max(aleuroneSurfaceSubscriptArray(tempInd,3));
+[~, topRightTipInd] = max(aleuroneBorderSubscriptArray(tempInd,3));
 
 topRightTipInd = tempInd(topRightTipInd);
 
-% Find closest points on aleurone surface.
-[~, nearestGermLeft] = min(sqrt((germSurfaceSubscriptArray(:,1) - aleuroneSurfaceSubscriptArray(topLeftTipInd,1)).^2 + ...
-    (germSurfaceSubscriptArray(:,2) - aleuroneSurfaceSubscriptArray(topLeftTipInd,2)).^2 + ...
-    (germSurfaceSubscriptArray(:,3) - aleuroneSurfaceSubscriptArray(topLeftTipInd,3)).^2 )); 
+% Get loop above tips
+topLoopInds = find(loopSubscriptArray(:,3) > mean(aleuroneBorderSubscriptArray([topLeftTipInd topRightTipInd],3)));
 
-[~, nearestGermRight] = min(sqrt((germSurfaceSubscriptArray(:,1) - aleuroneSurfaceSubscriptArray(topRightTipInd,1)).^2 + ...
-    (germSurfaceSubscriptArray(:,2) - aleuroneSurfaceSubscriptArray(topRightTipInd,2)).^2 + ...
-    (germSurfaceSubscriptArray(:,3) - aleuroneSurfaceSubscriptArray(topRightTipInd,3)).^2 ));
+% Find germ border to left and right
+leftGermInds = find(germBorderSubscriptArray(:,1) < min(loopSubscriptArray(topLoopInds,1)));
+
+rightGermInds = find(germBorderSubscriptArray(:,1) > max(loopSubscriptArray(topLoopInds,1)));
+
+% Find closest points on aleurone surface.
+[~, nearestGermLeft] = min(sqrt((germBorderSubscriptArray(leftGermInds,1) - aleuroneBorderSubscriptArray(topLeftTipInd,1)).^2 + ...
+    (germBorderSubscriptArray(leftGermInds,2) - aleuroneBorderSubscriptArray(topLeftTipInd,2)).^2 + ...
+    (germBorderSubscriptArray(leftGermInds,3) - aleuroneBorderSubscriptArray(topLeftTipInd,3)).^2 )); 
+
+[~, nearestGermRight] = min(sqrt((germBorderSubscriptArray(rightGermInds,1) - aleuroneBorderSubscriptArray(topRightTipInd,1)).^2 + ...
+    (germBorderSubscriptArray(rightGermInds,2) - aleuroneBorderSubscriptArray(topRightTipInd,2)).^2 + ...
+    (germBorderSubscriptArray(rightGermInds,3) - aleuroneBorderSubscriptArray(topRightTipInd,3)).^2 ));
 
 % Draw line between both sets of points, and remove from endosperm exterior
+% Just draw line in endosperm exterior
 
 % Dilate line to ensure surface is cut.
 dilateRadius = 2;
 
+%%% Could speed this and follwing up by doing on sub-volume
 % Left side.
-dMapFromGerm = bwdistgeodesic(grainExterior, sub2ind(volumeSize, ...
-    aleuroneSurfaceSubscriptArray(topLeftTipInd,1), aleuroneSurfaceSubscriptArray(topLeftTipInd,2),...
-    aleuroneSurfaceSubscriptArray(topLeftTipInd,3)), 'quasi-euclidean');
+dMapFromGerm = bwdistgeodesic(endospermExterior, sub2ind(volumeSize, ...
+    aleuroneBorderSubscriptArray(topLeftTipInd,1), aleuroneBorderSubscriptArray(topLeftTipInd,2),...
+    aleuroneBorderSubscriptArray(topLeftTipInd,3)), 'quasi-euclidean');
 
-dMapFromAl = bwdistgeodesic(grainExterior, sub2ind(volumeSize, ...
-    germSurfaceSubscriptArray(nearestGermLeft,1), germSurfaceSubscriptArray(nearestGermLeft,2),...
-    germSurfaceSubscriptArray(nearestGermLeft,3)), 'quasi-euclidean');
+dMapFromAl = bwdistgeodesic(endospermExterior, sub2ind(volumeSize, ...
+    germBorderSubscriptArray(leftGermInds(nearestGermLeft),1), germBorderSubscriptArray(leftGermInds(nearestGermLeft),2),...
+    germBorderSubscriptArray(leftGermInds(nearestGermLeft),3)), 'quasi-euclidean');
 
 dMap = dMapFromGerm + dMapFromAl;
 
-dMap = round(dMap * 64)/64;
+dMap = round(dMap * 8)/8;
 
 dMap(isnan(dMap)) = Inf;
 
@@ -1352,27 +1450,27 @@ nIndex = length(leftLineInds); leftLineSubscripts = zeros(nIndex, 3);
     ind2sub(volumeSize, leftLineInds);
 
 % Right side.
-dMapFromGerm = bwdistgeodesic(grainExterior, sub2ind(volumeSize, ...
-    aleuroneSurfaceSubscriptArray(topRightTipInd,1), aleuroneSurfaceSubscriptArray(topRightTipInd,2),...
-    aleuroneSurfaceSubscriptArray(topRightTipInd,3)), 'quasi-euclidean');
+dMapFromGerm = bwdistgeodesic(endospermExterior, sub2ind(volumeSize, ...
+    aleuroneBorderSubscriptArray(topRightTipInd,1), aleuroneBorderSubscriptArray(topRightTipInd,2),...
+    aleuroneBorderSubscriptArray(topRightTipInd,3)), 'quasi-euclidean');
 
-dMapFromAl = bwdistgeodesic(grainExterior, sub2ind(volumeSize, ...
-    germSurfaceSubscriptArray(nearestGermRight,1), germSurfaceSubscriptArray(nearestGermRight,2),...
-    germSurfaceSubscriptArray(nearestGermRight,3)), 'quasi-euclidean');
+dMapFromAl = bwdistgeodesic(endospermExterior, sub2ind(volumeSize, ...
+    germBorderSubscriptArray(rightGermInds(nearestGermRight),1), germBorderSubscriptArray(rightGermInds(nearestGermRight),2),...
+    germBorderSubscriptArray(rightGermInds(nearestGermRight),3)), 'quasi-euclidean');
 
 dMap = dMapFromGerm + dMapFromAl;
 
-dMap = round(dMap * 64)/64;
+dMap = round(dMap * 8)/8;
 
 dMap(isnan(dMap)) = Inf;
 
 lineVolume = imregionalmin(dMap);
 
-lineVolume = imdilate(lineVolume, strel('sphere',3));
+lineVolume = imdilate(lineVolume, strel('sphere',dilateRadius));
 
 rightLineInds = find(lineVolume);
 
-nIndex = length(rightLineInds); rightLineSubscripts = zeros(nIndex, dilateRadius);
+nIndex = length(rightLineInds); rightLineSubscripts = zeros(nIndex, 3);
 
 [rightLineSubscripts(:,1), rightLineSubscripts(:,2), rightLineSubscripts(:,3)] = ...
     ind2sub(volumeSize, rightLineInds);
@@ -1416,8 +1514,8 @@ for iRegion = 1:4
 end
 title(sprintf('Will remove lowest %i', removeLowest));
 
-%%% Would be good to add a test to see which large regions to consider, 
-%%% and which low ones to remove
+%%% Left number to remove as varaible, should basically always be 2
+% If not, probably an indicaiton crease cut has failed
 
 for iRegion = 1:removeLowest
     endospermExterior(tempStats(sortLength(sortMinZ(iRegion))).PixelIdxList) = 0;
@@ -1427,6 +1525,9 @@ end
 
 %%% Note that some fluff along crease remains.
 %%% Could grow on surface to connect these to main crease?
+
+%%% Could remove crease exterior from main exterior
+%%% Probably best just to do for array used in distance map calc
 
 endospermSurfaceIndexList = find(endospermExterior);
 
@@ -1442,17 +1543,17 @@ endospermCreaseExteriorBorder = imdilate(endospermCreaseExterior, STREL_18_CONNE
 figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
 
 plot3(aleuroneSurfaceSubscriptArray(1:100:end,1), aleuroneSurfaceSubscriptArray(1:100:end,2), ...
-     aleuroneSurfaceSubscriptArray(1:100:end,3), 'b.')
+     aleuroneSurfaceSubscriptArray(1:100:end,3), 'y.')
  
-plot3(endospermSurfaceSubscriptArray(:,1), endospermSurfaceSubscriptArray(:,2), endospermSurfaceSubscriptArray(:,3), 'g.')
+%plot3(endospermSurfaceSubscriptArray(:,1), endospermSurfaceSubscriptArray(:,2), endospermSurfaceSubscriptArray(:,3), 'g.')
 
-plot3(germSurfaceSubscriptArray(:,1), germSurfaceSubscriptArray(:,2), germSurfaceSubscriptArray(:,3), 'y.')
+plot3(germSurfaceSubscriptArray(:,1), germSurfaceSubscriptArray(:,2), germSurfaceSubscriptArray(:,3), 'b.')
 
 plot3(leftLineSubscripts(:,1), leftLineSubscripts(:,2), leftLineSubscripts(:,3), 'kx')
 
 plot3(rightLineSubscripts(:,1), rightLineSubscripts(:,2), rightLineSubscripts(:,3), 'kx')
 
-clear endospermCreaseExterior
+clear endospermCreaseExterior, clear germExterior
 %% Check that aleurone and endosperm exteriors form continous region
 % Not required for either indvidually, but should work for whole
 
@@ -1561,7 +1662,7 @@ nIndex = length(combinedEdgeIndexList); combinedEdgeSubscriptArray = zeros(nInde
 
 creaseAleuroneInds = find(endospermCreaseExteriorBorder(combinedEdgeIndexList));
 
-clear combinedExterior, clear combinedEdge, %clear curveCutVolume
+clear combinedExterior, clear combinedEdge, clear curveCutVolume
 
 %% Calculate surface area of aleurone exterior and interior
 %https://se.mathworks.com/matlabcentral/answers/93023-is-there-a-matlab-function-that-can-compute-the-area-of-my-patch
