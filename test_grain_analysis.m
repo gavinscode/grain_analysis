@@ -1,34 +1,36 @@
 % To do
-    %Normalize intensity between multiple grains based on germ histogram
+    % Normalize intensity between multiple grains based on germ histogram
 
+    % Check commented volume clears included again    
+    
 % Test load and plot of grain stack.
 clc; clear; close all
 
 % Other: Om_1_6
-labelDirectory = 'C:\Grain_temp\Om1_6\Labels';
-greyDirectory = 'C:\Grain_temp\Om1_6\Images';
-dataName = 'OM16';
-ALEURONE_INDEX = 2; % Material index.
-ENDOSPERM_INDEX = 1;
-GERM_INDEX = 3;
-turnXY = -1; %Set to get correct rotation of crease, should face down
-roundOnLoop = 16;
-removeLowest = 2;
-padLow = [20 0 0];
-padHigh = [0 0 0];
+% labelDirectory = 'C:\Grain_temp\Om1_6\Labels';
+% greyDirectory = 'C:\Grain_temp\Om1_6\Images';
+% dataName = 'OM16';
+% ALEURONE_INDEX = 2; % Material index.
+% ENDOSPERM_INDEX = 1;
+% GERM_INDEX = 3;
+% turnXY = -1; %Set to get correct rotation of crease, should face down
+% roundOnLoop = 16;
+% removeLowest = 2;
+% padLow = [20 0 0];
+% padHigh = [0 0 0];
 
 %OB_6 test
-%labelDirectory = 'C:\Grain_temp\OB6_test\Labels';
-%greyDirectory = 'C:\Grain_temp\OB6_test\Images';
-%dataName = 'OB6';
-% ALEURONE_INDEX = 1; % Material index.
-% ENDOSPERM_INDEX = 2;
-% GERM_INDEX = 3;
-%turnXY = 1;
-%roundOnLoop = 64; % Can be set back to 8?
-%removeLowest = 2;
-%padLow = [0 0 0];
-%padHigh = [0 0 0];
+labelDirectory = 'C:\Grain_temp\OB6_test\Labels';
+greyDirectory = 'C:\Grain_temp\OB6_test\Images';
+dataName = 'OB6';
+ALEURONE_INDEX = 1; % Material index.
+ENDOSPERM_INDEX = 2;
+GERM_INDEX = 3;
+turnXY = 1;
+roundOnLoop = 64; % Can be set back to 8?
+removeLowest = 2;
+padLow = [0 0 0];
+padHigh = [0 0 0];
 
 % Loading tiff stack takes a while.
 grainVolume = loadtiffstack(labelDirectory, 1);
@@ -61,22 +63,21 @@ surfaceDistance = 50; %50
 
 %Not, sparse distance must be less then others for code to work
 %OM16, will thrash on 2 during distance map, maybe remove parallel
-sparsePointsDistance = 4; %3 
+sparsePointsDistance = 2; %3 
 
 % Flags
 testPlotNormals = 0;
 
 %OM1_6 has a short cut, OB6 does not, probably best to stop... will add 10 minutes
-stopShortCuts = 1;
+stopShortCuts = 0;
 
 maxAleuroneThickness = 75; %In voxels - previous limit at 20
 
+numberOfBlocks = 15;
+
 blockThickness = 8/VOXEL_SIZE;
 
-depthToCalculate = 120/VOXEL_SIZE;
-
-% Try to make these all integer values given Voxel thickenss
-numberOfBlocks = depthToCalculate/blockThickness;
+depthToCalculate = blockThickness*numberOfBlocks;
 
 numPlotRows = ceil(numberOfBlocks/5);
 
@@ -90,7 +91,7 @@ curveStep = 5;
 % Note that original interpolation is every xth slice, 
 % so interp is at curveStepxstep slices
 %%% Set to 5 for good runs
-nrbStep = 10;
+nrbStep = 5;
 
 % offsetCut in by this amount, otherwise just steps in 10 from ends.
     %i.e. total cut in 10 + offsetCut
@@ -382,12 +383,6 @@ smallGrainExterior = grainExterior(xBoundsNew(1):xBoundsNew(2), ...
     yBoundsNew(1):yBoundsNew(2), zBoundsNew(1):zBoundsNew(2));
 
 smallVolumeSize = size(smallGrainVolume);
-
-%warning('Orignal volumes cleared')
-
-%clear grainVolumeAligned, clear grainExterior
-
-
 
 % Find loop start on top of grain. Firstly step in from top of grain
 zTopOfLoop = zRange(1)-zBoundsNew(1)+1 + 10;
@@ -765,6 +760,8 @@ nIndex = length(loopIndexList); loopSubscriptArray = zeros(nIndex, 3);
 [loopSubscriptArray(:,1), loopSubscriptArray(:,2), loopSubscriptArray(:,3)] = ...
     ind2sub(smallVolumeSize, loopIndexList);
 
+subplot(1,2,1)
+
 plot3(loopSubscriptArray(:,1), loopSubscriptArray(:,2), loopSubscriptArray(:,3), 'mo')
 
 %% Now find centre-curve by slice.
@@ -817,20 +814,24 @@ for iSlice = slicesToUse
         tempIndex = 1;
 
         for jStep = 1:length(curveLine)-1
+            
+         [tempX, tempY] = bresenham(curveLine(jStep,1),curveLine(jStep,2),...
+            curveLine(jStep+1,1),curveLine(jStep+1,2));
 
-            % Check distance is small.
-            if sqrt((curveLine(jStep+1,1)-curveLine(jStep,1))^2 + ...
-                    (curveLine(jStep+1,2)-curveLine(jStep,2))^2) < 5
+         curveLineFull(tempIndex:tempIndex+length(tempX)-1,:) = [tempX, tempY];
 
-                [tempX, tempY] = bresenham(curveLine(jStep,1),curveLine(jStep,2),...
-                    curveLine(jStep+1,1),curveLine(jStep+1,2));
-
-                curveLineFull(tempIndex:tempIndex+length(tempX)-1,:) = [tempX, tempY];
-
-                tempIndex = tempIndex + length(tempX);
-            else
+         tempIndex = tempIndex + length(tempX);
+         
+         % Check distance is small.
+         if sqrt((curveLine(jStep+1,1)-curveLine(jStep,1))^2 + ...
+                (curveLine(jStep+1,2)-curveLine(jStep,2))^2) > 5
                % Not expecting (really) large steps to occur
-               error('Large distance!'); 
+               figure; 
+               imshow(distanceFromGrain(:,:,iSlice)); hold on
+               plot(curveLine(:,2), curveLine(:,1), 'r.');
+               plot(curveLineFull(:,2), curveLineFull(:,1), 'b');
+               
+               warning('Large distance!'); 
             end
         end
 
@@ -934,8 +935,6 @@ tic
 curveNrb = nrbloft_nan(xArray(:, toInterp), yArray(:, toInterp), zArray(:, toInterp), 2);
 toc
 
-% 1st dimension is Y, 2nd dimension is Z
-nrbplot(curveNrb, [10, 50]);
 %% Put interpolated values into curve volume.
 %zToInterp = zBottomOfLoop-zTopOfLoop+1;
 zToInterp = max(max(zArray(:, toInterp)));
@@ -1175,6 +1174,29 @@ for iSlice = 1:volumeSize(3)
     end
 end
 
+%% Get indexes again
+curveIndexList = find(centreCurveVolume);
+
+mainInVolInds = find(grainExterior(curveIndexList));
+
+% Dilate curve to volume intersect to resolve continuity issues
+tempVol = zeros(volumeSize, 'uint8');
+
+tempVol(curveIndexList(mainInVolInds)) = centreCurveVolume(curveIndexList(mainInVolInds));
+
+tempVol = imdilate(tempVol, strel('sphere', 2));
+
+tempVol = tempVol .* uint8(grainExterior);
+
+% Copy back into main volume
+dilateInds = find(tempVol);
+
+%unique(centreCurveVolume(curveIndexList(mainInVolInds)))
+
+%unique(tempVol(dilateInds))
+
+centreCurveVolume(dilateInds) = tempVol(dilateInds);
+
 % Get indexes again
 curveIndexList = find(centreCurveVolume);
 
@@ -1183,14 +1205,15 @@ nIndex = length(curveIndexList); curveSubscriptArray = zeros(nIndex, 3);
 [curveSubscriptArray(:,1), curveSubscriptArray(:,2), curveSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, curveIndexList);
 
+mainInVolInds = find(grainVolumeAligned(curveIndexList));
+
 mainCurveInds = find(centreCurveVolume(curveIndexList) == 1);
 
 topCurveInds = find(centreCurveVolume(curveIndexList) == 2);
 
 endCurveInds = find(centreCurveVolume(curveIndexList) == 3);
 
-mainInVolInds = find(grainVolumeAligned(curveIndexList));
-
+clear tempVol
 %% Test if curve ends are connected. 
 testVolume = zeros(volumeSize);
 
@@ -1203,7 +1226,7 @@ tempStats = regionprops(tempCC, 'PixelList','PixelIdxList');
 nRegions = length(tempStats);
 
 % plot regions for now 
-figure; hold on; axis equal
+figure; hold on; axis equal; set(gca, 'Clipping', 'off')
 
 cols = lines(nRegions);
 
@@ -1261,6 +1284,9 @@ plot3(curveSubscriptArray(endCurveInds,1), curveSubscriptArray(endCurveInds,2), 
 
 plot3(curveSubscriptArray(mainInVolInds,1), curveSubscriptArray(mainInVolInds,2), ...
     curveSubscriptArray(mainInVolInds,3), 'mx')
+
+% 1st dimension is Y, 2nd dimension is Z
+nrbplot(curveNrb, [10, 50]);
 
 % plot3(loopSubscriptArray(:,1), loopSubscriptArray(:,2),...
 %    loopSubscriptArray(:,3), 'go'); 
@@ -1333,7 +1359,7 @@ nIndex = length(aleuroneInteriorIndexList); aleuroneInteriorSubscriptArray = zer
 germExterior = (grainExterior | curveCutVolume)  & (grainVolumeAligned == GERM_INDEX);
 
 % Take largest connected region of surface.
-tempCC = bwconncomp(germExterior, 26);
+tempCC = bwconncomp(germExterior, 18);
 
 tempStats = regionprops(tempCC, 'PixelIdxList');
 
@@ -1362,8 +1388,14 @@ nIndex = length(germSurfaceIndexList); germSurfaceSubscriptArray = zeros(nIndex,
 %% Get exterior endosperm surface except for crease
 endospermExterior = grainExterior & (grainVolumeAligned == ENDOSPERM_INDEX);
 
-% Get edges of aleurone and germ onto endosperm interaface
-aleuroneInterface = imdilate(aleuroneExterior, STREL_18_CONNECTED) & endospermExterior;
+% Exapnd aleurone by growing
+endospermExteriorLarge = imdilate(endospermExterior, strel('sphere',9)) & grainExterior;
+
+% Then grow once more and subtract previous to take border
+endospermExteriorLarge = (imdilate(endospermExteriorLarge, STREL_6_CONNECTED) & grainExterior) - endospermExteriorLarge;
+
+% Now intersect this
+aleuroneInterface = aleuroneExterior & endospermExteriorLarge;
 
 aleuroneBorderIndexList = find(aleuroneInterface);
 
@@ -1372,8 +1404,7 @@ nIndex = length(aleuroneBorderIndexList); aleuroneBorderSubscriptArray = zeros(n
 [aleuroneBorderSubscriptArray(:,1), aleuroneBorderSubscriptArray(:,2), aleuroneBorderSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, aleuroneBorderIndexList);
 
-
-germInterface = imdilate(germExterior, STREL_18_CONNECTED) & endospermExterior;
+germInterface = germExterior & endospermExteriorLarge;
 
 germBorderIndexList = find(germInterface);
 
@@ -1382,7 +1413,7 @@ nIndex = length(germBorderIndexList); germBorderSubscriptArray = zeros(nIndex, 3
 [germBorderSubscriptArray(:,1), germBorderSubscriptArray(:,2), germBorderSubscriptArray(:,3)] = ...
     ind2sub(volumeSize, germBorderIndexList);
 
-clear aleuroneInterface, clear germSurfaceIndexList
+clear aleuroneInterface, clear germInterface, clear endospermExteriorLarge
 
 % Take tips of aleurone points - on endosperm inteface
 curveCentre = mean(loopSubscriptArray(:,1));
@@ -1424,11 +1455,11 @@ dilateRadius = 2;
 
 %%% Could speed this and follwing up by doing on sub-volume
 % Left side.
-dMapFromGerm = bwdistgeodesic(endospermExterior, sub2ind(volumeSize, ...
+dMapFromAl = bwdistgeodesic(endospermExterior | aleuroneExterior, sub2ind(volumeSize, ...
     aleuroneBorderSubscriptArray(topLeftTipInd,1), aleuroneBorderSubscriptArray(topLeftTipInd,2),...
     aleuroneBorderSubscriptArray(topLeftTipInd,3)), 'quasi-euclidean');
 
-dMapFromAl = bwdistgeodesic(endospermExterior, sub2ind(volumeSize, ...
+dMapFromGerm = bwdistgeodesic(endospermExterior | germExterior, sub2ind(volumeSize, ...
     germBorderSubscriptArray(leftGermInds(nearestGermLeft),1), germBorderSubscriptArray(leftGermInds(nearestGermLeft),2),...
     germBorderSubscriptArray(leftGermInds(nearestGermLeft),3)), 'quasi-euclidean');
 
@@ -1440,7 +1471,7 @@ dMap(isnan(dMap)) = Inf;
 
 lineVolume = imregionalmin(dMap);
 
-lineVolume = imdilate(lineVolume, strel('sphere',dilateRadius)); 
+lineVolume = imdilate(lineVolume, strel('sphere',dilateRadius)) & grainExterior; 
 
 leftLineInds = find(lineVolume);
 
@@ -1450,11 +1481,11 @@ nIndex = length(leftLineInds); leftLineSubscripts = zeros(nIndex, 3);
     ind2sub(volumeSize, leftLineInds);
 
 % Right side.
-dMapFromGerm = bwdistgeodesic(endospermExterior, sub2ind(volumeSize, ...
+dMapFromAl = bwdistgeodesic(endospermExterior | aleuroneExterior, sub2ind(volumeSize, ...
     aleuroneBorderSubscriptArray(topRightTipInd,1), aleuroneBorderSubscriptArray(topRightTipInd,2),...
     aleuroneBorderSubscriptArray(topRightTipInd,3)), 'quasi-euclidean');
 
-dMapFromAl = bwdistgeodesic(endospermExterior, sub2ind(volumeSize, ...
+dMapFromGerm = bwdistgeodesic(endospermExterior | germExterior, sub2ind(volumeSize, ...
     germBorderSubscriptArray(rightGermInds(nearestGermRight),1), germBorderSubscriptArray(rightGermInds(nearestGermRight),2),...
     germBorderSubscriptArray(rightGermInds(nearestGermRight),3)), 'quasi-euclidean');
 
@@ -1466,7 +1497,7 @@ dMap(isnan(dMap)) = Inf;
 
 lineVolume = imregionalmin(dMap);
 
-lineVolume = imdilate(lineVolume, strel('sphere',dilateRadius));
+lineVolume = imdilate(lineVolume, strel('sphere',dilateRadius)) & grainExterior;
 
 rightLineInds = find(lineVolume);
 
@@ -1507,12 +1538,18 @@ end
 % Remove 2 with lowest Z value but add to seperate volume
 endospermCreaseExterior = zeros(volumeSize, 'logical');
 
-figure; hold on; axis equal
+figure; hold on; axis equal; set(gca, 'Clipping', 'off')
 for iRegion = 1:4
-    plot3(tempStats(sortLength(sortMinZ(iRegion))).PixelList(:,1), tempStats(sortLength(sortMinZ(iRegion))).PixelList(:,2), ...
+    plot3(tempStats(sortLength(sortMinZ(iRegion))).PixelList(:,2), tempStats(sortLength(sortMinZ(iRegion))).PixelList(:,1), ...
         tempStats(sortLength(sortMinZ(iRegion))).PixelList(:,3), '.')
 end
 title(sprintf('Will remove lowest %i', removeLowest));
+
+plot3(germSurfaceSubscriptArray(:,1), germSurfaceSubscriptArray(:,2), germSurfaceSubscriptArray(:,3), 'b.')
+
+plot3(leftLineSubscripts(:,1), leftLineSubscripts(:,2), leftLineSubscripts(:,3), 'kx')
+
+plot3(rightLineSubscripts(:,1), rightLineSubscripts(:,2), rightLineSubscripts(:,3), 'kx')
 
 %%% Left number to remove as varaible, should basically always be 2
 % If not, probably an indicaiton crease cut has failed
@@ -1525,9 +1562,6 @@ end
 
 %%% Note that some fluff along crease remains.
 %%% Could grow on surface to connect these to main crease?
-
-%%% Could remove crease exterior from main exterior
-%%% Probably best just to do for array used in distance map calc
 
 endospermSurfaceIndexList = find(endospermExterior);
 
@@ -1549,11 +1583,23 @@ plot3(aleuroneSurfaceSubscriptArray(1:100:end,1), aleuroneSurfaceSubscriptArray(
 
 plot3(germSurfaceSubscriptArray(:,1), germSurfaceSubscriptArray(:,2), germSurfaceSubscriptArray(:,3), 'b.')
 
-plot3(leftLineSubscripts(:,1), leftLineSubscripts(:,2), leftLineSubscripts(:,3), 'kx')
+%plot3(leftLineSubscripts(:,1), leftLineSubscripts(:,2), leftLineSubscripts(:,3), 'kx')
 
-plot3(rightLineSubscripts(:,1), rightLineSubscripts(:,2), rightLineSubscripts(:,3), 'kx')
+%plot3(rightLineSubscripts(:,1), rightLineSubscripts(:,2), rightLineSubscripts(:,3), 'kx')
 
-clear endospermCreaseExterior, clear germExterior
+plot3(aleuroneBorderSubscriptArray(:,1), aleuroneBorderSubscriptArray(:,2), aleuroneBorderSubscriptArray(:,3), 'kx')
+
+plot3(germBorderSubscriptArray(:,1), germBorderSubscriptArray(:,2), germBorderSubscriptArray(:,3), 'kx')
+
+line([aleuroneBorderSubscriptArray(topLeftTipInd,1) germBorderSubscriptArray(leftGermInds(nearestGermLeft),1)],...
+    [aleuroneBorderSubscriptArray(topLeftTipInd,2) germBorderSubscriptArray(leftGermInds(nearestGermLeft),2)],...
+    [aleuroneBorderSubscriptArray(topLeftTipInd,3) germBorderSubscriptArray(leftGermInds(nearestGermLeft),3)], 'color', 'm');
+
+line([aleuroneBorderSubscriptArray(topRightTipInd,1) germBorderSubscriptArray(rightGermInds(nearestGermRight),1)],...
+    [aleuroneBorderSubscriptArray(topRightTipInd,2) germBorderSubscriptArray(rightGermInds(nearestGermRight),2)],...
+    [aleuroneBorderSubscriptArray(topRightTipInd,3) germBorderSubscriptArray(rightGermInds(nearestGermRight),3)], 'color', 'm');
+
+clear endospermCreaseExterior, clear germExterior, clear lineVolume
 %% Check that aleurone and endosperm exteriors form continous region
 % Not required for either indvidually, but should work for whole
 
@@ -1563,7 +1609,7 @@ combinedExterior = endospermExterior + aleuroneExterior;
 %combinedExterior(aleuroneEdgeIndexList) = 3;
 
 % Take largest connected region.
-tempCC = bwconncomp(combinedExterior, 26);
+tempCC = bwconncomp(combinedExterior, 18);
 
 tempStats = regionprops(tempCC, 'PixelIdxList');
 
@@ -1845,26 +1891,23 @@ plot3(combinedSurfaceSubscripts(surfacePointsChoosen,1), combinedSurfaceSubscrip
 plot3(combinedEdgeSubscriptArray(edgePointsChoosen,1), combinedEdgeSubscriptArray(edgePointsChoosen,2), ...
     combinedEdgeSubscriptArray(edgePointsChoosen,3), 'ro')
 
-plot3(combinedSurfaceSubscripts(sparsePointsChoosen,1), combinedSurfaceSubscripts(sparsePointsChoosen,2), ...
-    combinedSurfaceSubscripts(sparsePointsChoosen,3), 'm.')
+%  plot3(combinedSurfaceSubscripts(sparsePointsChoosen,1), combinedSurfaceSubscripts(sparsePointsChoosen,2), ...
+%      combinedSurfaceSubscripts(sparsePointsChoosen,3), 'm.')
 
-plot3(endospermSurfaceSubscriptArray(1:1:end,1), endospermSurfaceSubscriptArray(1:1:end,2), ...
-     endospermSurfaceSubscriptArray(1:1:end,3), 'b.')
-%% Load grey image.
-% Loading tiff stack takes a while.
-greyVolume = loadtiffstack(greyDirectory, 1);
+% plot3(curveSubscriptArray(mainInVolInds,1), curveSubscriptArray(mainInVolInds,2), ...
+%     curveSubscriptArray(mainInVolInds,3), 'cx') 
+ 
+plot3(combinedEdgeSubscriptArray(:,1), combinedEdgeSubscriptArray(:,2), combinedEdgeSubscriptArray(:,3),'m.')
 
-if any(padLow); greyVolume = padarray(greyVolume, padLow, 0, 'pre'); end
+% exteriorIndexList = find(grainExterior);
+% 
+% nIndex = length(exteriorIndexList); exteriorSubscriptArray = zeros(nIndex, 3);
+% 
+% [exteriorSubscriptArray(:,1), exteriorSubscriptArray(:,2), exteriorSubscriptArray(:,3)] = ...
+%     ind2sub(volumeSize, exteriorIndexList);
+% 
+% plot3(exteriorSubscriptArray(:,1), exteriorSubscriptArray(:,2), exteriorSubscriptArray(:,3), 'k.')
 
-if any(padHigh); greyVolume = padarray(greyVolume, padHigh, 0, 'post'); end
-
-if size(greyVolume) ~= volumeSize; error('Size mismatch'); end
-
-greyVolumeAligned = uint8( affine_transform_full(single(greyVolume), M1*M2*M3*M4, 1));
-
-% Affine transform with linear interp. does not seem to have small holes problem.
-
-clear greyVolume
 %% Calulate distance between map points
 
 %%% Geodesic connectivity calculated with 26
@@ -1902,8 +1945,8 @@ indexsToUseByPoint = cell(nPoints,1);
 normalRadius = 50;
 
 % Loop through geodesic distance calculations for each point then put into matrix.
-
-parfor iPoint = 1:nPoints %
+%parfor iPoint = 1:nPoints 
+for iPoint = 1:nPoints
     tic
     % Try using grain exterior volume, can traverese germ, but not curve cut
     dMap = bwdistgeodesic(grainExterior, indsToInterpolate(iPoint),'quasi-euclidean');
@@ -1919,10 +1962,53 @@ parfor iPoint = 1:nPoints %
     % Select points based on distance map to prevent picking points on both sides of crease.
     indexsToUseByPoint{iPoint} = find(dMap(totalIndexList) < normalRadius*2);
 end
-  
+
 save(sprintf('C:\\Users\\Admin\\Documents\\MATLAB\\Temp_data\\%s_temp', 'distanceMatrix'), ...
     'edgeDistance', 'surfaceDistance', 'sparsePointsDistance', 'normalRadius',...    
     'distanceMatrix', 'distanceMatrixSparse', 'indexsToUseByPoint', '-v7.3');
+
+%% plot distance map to to test
+figure; hold on; axis equal;
+
+ind2Use = find((subscriptsToInterpolate(:,1)) == 430 & (subscriptsToInterpolate(:,2) == 362) & ...
+    (subscriptsToInterpolate(:,3) == 0));
+
+if isempty(ind2Use)
+   [~, ind2Use] = min(subscriptsToInterpolate(:,2)); 
+end
+
+tempDMatrix = distanceMatrix(ind2Use,:);
+
+inds2Plot = find(tempDMatrix < 2000);
+
+fscatter3(subscriptsToInterpolate(inds2Plot,1), subscriptsToInterpolate(inds2Plot,2), ...
+    subscriptsToInterpolate(inds2Plot,3),  tempDMatrix(inds2Plot), jet(100))
+
+plot3(subscriptsToInterpolate(ind2Use,1), subscriptsToInterpolate(ind2Use,2), ...
+    subscriptsToInterpolate(ind2Use,3), 'rx')
+
+tempDMatrix = distanceMatrixSparse(ind2Use,:);
+
+inds2Plot = find(tempDMatrix < 2000);
+
+fscatter3(subscriptsForSparse(inds2Plot,1), subscriptsForSparse(inds2Plot,2), ...
+    subscriptsForSparse(inds2Plot,3),  tempDMatrix(inds2Plot), jet(100))
+
+%% Load grey image.
+% Loading tiff stack takes a while.
+greyVolume = loadtiffstack(greyDirectory, 1);
+
+if any(padLow); greyVolume = padarray(greyVolume, padLow, 0, 'pre'); end
+
+if any(padHigh); greyVolume = padarray(greyVolume, padHigh, 0, 'post'); end
+
+if size(greyVolume) ~= volumeSize; error('Size mismatch'); end
+
+greyVolumeAligned = uint8( affine_transform_full(single(greyVolume), M1*M2*M3*M4, 1));
+
+% Affine transform with linear interp. does not seem to have small holes problem.
+
+clear greyVolume
 
 %% Calculate normals and thicknesses
 % Find sparse points associated with each main point, these will be referenced for calculating normals.
@@ -1962,9 +2048,18 @@ grid3D.nx = volumeSize(1); grid3D.ny = volumeSize(2); grid3D.nz = volumeSize(3);
 grid3D.minBound = [1 1 1]';
 grid3D.maxBound = volumeSize';
 
+% To find point reference in debug
+% for iPoint = 1:nPoints
+%     sparseLinks = pointToSparseLinks{iPoint};
+%     ind = find(sparseLinks == 7967);
+%     if ~isempty(ind)
+%         [iPoint ind]
+%     end
+% end
+
 % Calculate normals to get thickness
 parfor iPoint = 1:nPoints %
-%for iPoint = 25; %1761:nPoints
+%for iPoint = 1596:nPoints
     % Make list with this location and sparse points
     sparseLinks = pointToSparseLinks{iPoint};
     
@@ -1995,6 +2090,10 @@ parfor iPoint = 1:nPoints %
             error('%i %i - Target point not in patch', iPoint, jSubscript)
         end
             
+%         if jSubscript == (61+1)
+%             b = 1;
+%         end
+        
         tempNormal = normaltosurface(currentSubscript , ...
             combinedSurfaceSubscripts(indexListInRange,:), [], [], normalRadius);
         
@@ -2020,7 +2119,7 @@ parfor iPoint = 1:nPoints %
 
         backwardAirIndex = find(backwardSum > 0.5);
         
-        % [grainVolumeAlignedCut(forwardIndexList(1:depth)) grainVolumeAlignedCut(backwardIndexList(1:depth))]
+        %[grainVolumeAlignedCut(forwardIndexList(1:depth)) grainVolumeAlignedCut(backwardIndexList(1:depth))]
         
         gotDirection = 0;
         
@@ -2094,29 +2193,29 @@ parfor iPoint = 1:nPoints %
                 else
                     lineColor = 'r';
                 end
-%                 figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
-%                 plot3(combinedSurfaceSubscripts(surfacePointsChoosen,1), combinedSurfaceSubscripts(surfacePointsChoosen,2), ...
-%                     combinedSurfaceSubscripts(surfacePointsChoosen,3), 'gx')
-% % 
-%                 plot3(combinedEdgeSubscriptArray(edgePointsChoosen,1), combinedEdgeSubscriptArray(edgePointsChoosen,2), ...
-%                     combinedEdgeSubscriptArray(edgePointsChoosen,3), 'ro')
+                figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
+                plot3(combinedSurfaceSubscripts(surfacePointsChoosen,1), combinedSurfaceSubscripts(surfacePointsChoosen,2), ...
+                    combinedSurfaceSubscripts(surfacePointsChoosen,3), 'g.')
+% 
+                plot3(combinedEdgeSubscriptArray(edgePointsChoosen,1), combinedEdgeSubscriptArray(edgePointsChoosen,2), ...
+                    combinedEdgeSubscriptArray(edgePointsChoosen,3), 'r.')
+                
+                plot3(combinedSurfaceSubscripts(indexListInRange,1), combinedSurfaceSubscripts(indexListInRange,2),...
+                    combinedSurfaceSubscripts(indexListInRange,3), '.')
+% 
+                 plot3(currentSubscript(1), currentSubscript(2), currentSubscript(2), 'cx')
 %                 
-%                 plot3(combinedSurfaceSubscripts(indexListInRange,1), combinedSurfaceSubscripts(indexListInRange,2),...
-%                     combinedSurfaceSubscripts(indexListInRange,3), '.')
-% % 
-%                  plot3(currentSubscript(1), currentSubscript(2), currentSubscript(2), 'c*')
-% %                 
-%                 line([0 tempNormal(1)*200]+currentSubscript(1),...
-%                     [0 tempNormal(2)*200]+currentSubscript(2), ...
-%                     [0 tempNormal(3)*200]+currentSubscript(3), 'color', 'r')
+                line([0 tempNormal(1)*200]+currentSubscript(1),...
+                    [0 tempNormal(2)*200]+currentSubscript(2), ...
+                    [0 tempNormal(3)*200]+currentSubscript(3), 'color', 'm')
 
                 
                 figure; imshow(grainVolumeAlignedCut(:,:,currentSubscript(3))*100)
                 hold on
                 
-%                 line( [0 tempNormal(2)*200]+currentSubscript(2),  ...
-%                     [0 tempNormal(1)*200]+currentSubscript(1),...
-%                         'color', 'r')
+                line( [0 tempNormal(2)*200]+currentSubscript(2),  ...
+                    [0 tempNormal(1)*200]+currentSubscript(1),...
+                        'color', 'r')
                     
                 plot(currentSubscript(2), currentSubscript(1) , 'c*')
 
@@ -2169,6 +2268,12 @@ parfor iPoint = 1:nPoints %
             
             intersectsCleared = 0;
             
+            clearNormal = 0;
+            
+            if all(lineIDs == ALEURONE_INDEX)
+               error('%i %i - All aleurone', iPoint, jSubscript)  
+            end
+            
             % Test there is an interior intersect
             if isempty(interiorPoints)
                 % If not, figure outwhat happened.
@@ -2181,17 +2286,20 @@ parfor iPoint = 1:nPoints %
                 exteriorIDs = lineIDs(exteriorInds);
                 
                 if any(exteriorIDs ~= ALEURONE_INDEX)
-                   % Has hit other exteriors
+                   % Has hit other exteriors - not sure if normal is guaranteed to be good
                    %%% Could try to test if there is a just a small air gap above aleurone, but discard for now
-                   interiorPoints = [];
-                           
                    intersectsCleared = 1;
 
                    warning('%i %i - No interior intersects', iPoint, jSubscript)   
-               else
-                   % Only passed through aleurone
-                   error('%i %i - Only hits aleurone exterior, problem with normal', iPoint, jSubscript) 
-               end
+                else
+                   % Only passed through aleurone - very rare now
+                   % Normal in wrong direction, just delete
+                   intersectsCleared = 1;
+                   
+                   clearNormal = 1;
+                   
+                   warning('%i %i - Only hits aleurone exterior, problem with normal', iPoint, jSubscript) 
+                end
             end
             
             % Check other things do not occur before first interect
@@ -2223,6 +2331,19 @@ parfor iPoint = 1:nPoints %
                          warning('%i %i - Unexpected materials before intersect', iPoint, jSubscript)
                     end
                 end
+            end
+            
+            % Check if only air and aleurone
+            if all(lineIDs == ALEURONE_INDEX | lineIDs == 0) & ~intersectsCleared 
+                %Even with interior intersect, normal is probably in wrong direction
+                %%% May be better way to define this
+                interiorPoints = [];
+                
+                intersectsCleared = 1;
+                   
+                clearNormal = 1;
+                
+                warning('%i %i - Has interior but only in aleurone and air, problem with normal', iPoint, jSubscript)  
             end
             
             %Find breaks in interior intersects
@@ -2292,6 +2413,14 @@ parfor iPoint = 1:nPoints %
                     warning('%i %i - No interior intersect', iPoint, jSubscript);
                end
             end 
+            
+            if clearNormal
+                if jSubscript == 1
+                    normalByPoint(iPoint,:) = NaN;
+                else
+                    tempNormalArray(jSubscript-1,:) = NaN;
+                end
+            end
         end
     end
     
@@ -2349,27 +2478,11 @@ for iPoint = 1:nPoints
     
     startPoint = subscriptsToInterpolate(iPoint,:);
 
-    plot3(startPoint(1), startPoint(2), startPoint(3), 'x')    
+    plot3(startPoint(1), startPoint(2), startPoint(3), '.')    
        
-    line([0 50]*tempNormal(1) + startPoint(1), [0 50]*tempNormal(2) + startPoint(2), ...
-        [0 50]*tempNormal(3) + startPoint(3)); 
+    line([0 200]*tempNormal(1) + startPoint(1), [0 200]*tempNormal(2) + startPoint(2), ...
+        [0 200]*tempNormal(3) + startPoint(3)); 
 end
-
-%% plot distance map to to test
-figure; hold on; axis equal;
-
-ind = find((subscriptsToInterpolate(:,1)) == 434 & (subscriptsToInterpolate(:,2) == 301) & ...
-    (subscriptsToInterpolate(:,3) == 35));
-
-if isempty(ind)
-   [~, ind] = min(subscriptsToInterpolate(:,2)); 
-end
-
-fscatter3(subscriptsToInterpolate(:,1), subscriptsToInterpolate(:,2), ...
-    subscriptsToInterpolate(:,3),  distanceMatrix(ind,:), jet(100))
-
-plot3(subscriptsToInterpolate(ind,1), subscriptsToInterpolate(ind,2), ...
-    subscriptsToInterpolate(ind,3), 'rx')
 
 %% Calaculate integrals under surface.
 
@@ -2388,7 +2501,7 @@ allowOverhangs = 1;
 % skims border of other structure. - but some have to be lost...
 
 % Step through main points
-for iPoint = 1:(nPoints + nSparsePoints)
+for iPoint = 1:(nPoints + nSparsePoints);
     
     if iPoint <= nPoints
         tempNormal = normalByPoint(iPoint,:);
@@ -2417,6 +2530,19 @@ for iPoint = 1:(nPoints + nSparsePoints)
            startPoint = subscriptsForSparse(iPoint-nPoints,:);
         end
     end
+    
+%        figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
+%         plot3(combinedSurfaceSubscripts(surfacePointsChoosen,1), combinedSurfaceSubscripts(surfacePointsChoosen,2), ...
+%             combinedSurfaceSubscripts(surfacePointsChoosen,3), 'g.')
+% % 
+%         plot3(combinedEdgeSubscriptArray(edgePointsChoosen,1), combinedEdgeSubscriptArray(edgePointsChoosen,2), ...
+%             combinedEdgeSubscriptArray(edgePointsChoosen,3), 'r.')
+% % 
+%          plot3(currentSubscript(1), currentSubscript(2), currentSubscript(3), 'cx')
+% %                 
+%         line([0 tempNormal(1)*200]+startPoint(1),...
+%             [0 tempNormal(2)*200]+startPoint(2), ...
+%             [0 tempNormal(3)*200]+startPoint(3), 'color', 'm')
     
 %                 figure; imshow(grainVolumeAlignedCut(:,:,startPoint(3))*100)
 %                 hold on
@@ -3109,6 +3235,9 @@ inMap = find(image2Plot(:));
 
 [XPointsIn, YPointsIn] = ind2sub([xRange, yRange], inMap);
 
+%%% Should also identify which subscripts are properly in map (they can extend beyond border limits)
+% Just use those in following
+
 % Plot to test
 figure; imshow(image2Plot'); hold on;
 
@@ -3241,7 +3370,7 @@ warning('Colour range setting is not automated')
 
 [max(thicknessByPoint) max(thicknessForSparse)]
 
-thicknessImage = (thicknessImage-0)/(80-0);
+thicknessImage = (thicknessImage-0)/(100-0);
 
 figure; 
 imshow(thicknessImage')
@@ -3282,7 +3411,7 @@ intensityImage(inAleurone) = intensityInterpolant(XPointsInAleurone, YPointsInAl
 [max(averageIntensityByPoint) max(averageIntensityForSparse)]
 [min(averageIntensityByPoint) min(averageIntensityForSparse)]
 
-intensityImage = (intensityImage-100)/(220-100);
+intensityImage = (intensityImage-100)/(250-100);
 
 figure;
 imshow(intensityImage')
@@ -3385,6 +3514,9 @@ figure;
 
 colsID = [[0 0 0]; [1 0 1]; [1 1 0]; [0 1 0]; [0 0 1]];
 
+% Resort cols ID
+colsID = colsID([1:2, [ALEURONE_INDEX, ENDOSPERM_INDEX, GERM_INDEX]+2],:);
+
 for iBlock = 1:numberOfBlocks    
     subplot(numPlotRows,5,iBlock);
     
@@ -3422,6 +3554,7 @@ for iBlock = 1:numberOfBlocks
         YPointsIn(indsToGet), ones(length(indsToGet),1)*(iBlock-1)*blockThickness);
 end
 
+%%
 figure;
 
 % Put into arrays and plot
@@ -3435,7 +3568,7 @@ for iBlock = 1:numberOfBlocks
     indsToUse = find(IDProfileInterp(:, iBlock) == ENDOSPERM_INDEX);
     
     % Get points and wrap to range
-    tempImage(inMap(indsToUse)) = (intensityProfileInterp(indsToUse, iBlock)-40)/(120-40);
+    tempImage(inMap(indsToUse)) = (intensityProfileInterp(indsToUse, iBlock)-50)/(150-50);
     
     tempImageR = tempImage; tempImageG = tempImage; tempImageB = tempImage;
     
@@ -3463,7 +3596,7 @@ end
     
 figure
 colormap(gray(100))
-hcb = colorbar; set(hcb,'Ticks', [0 0.5 1], 'TickLabels', {'40','80','120'})
+hcb = colorbar; set(hcb,'Ticks', [0 0.5 1], 'TickLabels', {'50','100','150'})
 title('Profile intensity (AU)')
 %% Look at intensity correlation between aleurone and depth layers
 
@@ -3774,18 +3907,18 @@ subplot(1,3,1)
 plot(verticalThicknessMean, (verticalCoords+vertOffset)*VOXEL_SIZE/1000);
 xlabel('Average aleurone thickness (um)')
 ylabel('Distance from base (mm)')
-xlim([0 60]); ylim([0 10])
+xlim([0 60]); ylim([0 12])
 
 subplot(1,3,2)
 plot(verticalIntensityMean, (verticalCoords+vertOffset)*VOXEL_SIZE/1000);
 xlabel('Average aleurone intensity (AU)')
 title('Vertical profiles')
-xlim([0 200]); ylim([0 10])
+xlim([0 200]); ylim([0 12])
 
 subplot(1,3,3)
 plot(verticalCount*areaPerPoint, (verticalCoords+vertOffset)*VOXEL_SIZE/1000);
 xlabel('Average aleurone area (mm2)')
-xlim([0 10]); ylim([0 10])
+xlim([0 10]); ylim([0 12])
 
 % For horizonalt thickness and intensity
 
@@ -3822,37 +3955,70 @@ xlim([-5 5]); ylim([0 5])
 
 cols = winterCoolColours;
 
+%%% Could also plot intensity profile in aleurone for comparison to exposed endosperm
+
 figure;
 for iBlock = 1:numberOfBlocks
-    valuesToUse = find(~isnan(pointIntensityProfile(:,iBlock)));
+   % Mask to area under aleurone 
+   valuesToUseEndo = find(~isnan(pointIntensityProfile(:,iBlock)) & ~isnan(thicknessByPoint));
 
-    valuesToSparse = find(~isnan(sparseIntensityProfile(:,iBlock)));
-    
+   valuesToSparseEndo = find(~isnan(sparseIntensityProfile(:,iBlock)) & ~isnan(thicknessForSparse));
+   
     % Calc certical, using bins from al
-    [verticalIntensityMean] = calculateProfile([pointIntensityProfile(valuesToUse, iBlock)' sparseIntensityProfile(valuesToSparse, iBlock)']',...
-        -[offSetFullSubscripts(valuesToUse,2)' offSetSparseSubscripts(valuesToSparse,2)']', vertBins, []);
+    [verticalIntensityMean] = calculateProfile([pointIntensityProfile(valuesToUseEndo, iBlock)' sparseIntensityProfile(valuesToSparseEndo, iBlock)']',...
+        -[offSetFullSubscripts(valuesToUseEndo,2)' offSetSparseSubscripts(valuesToSparseEndo,2)']', vertBins, []);
     
-    subplot(1,2,1); hold on
+    subplot(2,2,1); hold on
     plot(verticalIntensityMean, (verticalCoords+vertOffset)*VOXEL_SIZE/1000, 'color', cols(iBlock,:));
 
-    [horizontalIntensityMean] = calculateProfile([pointIntensityProfile(valuesToUse, iBlock)' sparseIntensityProfile(valuesToSparse, iBlock)']',...
-        [offSetFullSubscripts(valuesToUse,1)' offSetSparseSubscripts(valuesToSparse,1)']', hoirzBins, xCent);
+    [horizontalIntensityMean] = calculateProfile([pointIntensityProfile(valuesToUseEndo, iBlock)' sparseIntensityProfile(valuesToSparseEndo, iBlock)']',...
+        [offSetFullSubscripts(valuesToUseEndo,1)' offSetSparseSubscripts(valuesToSparseEndo,1)']', hoirzBins, xCent);
 
-    subplot(1,2,2); hold on
+    subplot(2,2,2); hold on
+    plot(horizontalCoords*VOXEL_SIZE/1000, horizontalIntensityMean, 'color', cols(iBlock,:));
+    
+    % Take full area
+    valuesToUseEndo = find(~isnan(pointIntensityProfile(:,iBlock)) & isnan(thicknessByPoint));
+
+    valuesToSparseEndo = find(~isnan(sparseIntensityProfile(:,iBlock)) & isnan(thicknessForSparse));
+   
+    % Calc certical, using bins from al
+    [verticalIntensityMean] = calculateProfile([pointIntensityProfile(valuesToUseEndo, iBlock)' sparseIntensityProfile(valuesToSparseEndo, iBlock)']',...
+        -[offSetFullSubscripts(valuesToUseEndo,2)' offSetSparseSubscripts(valuesToSparseEndo,2)']', vertBins, []);
+    
+    subplot(2,2,3); hold on
+    plot(verticalIntensityMean, (verticalCoords+vertOffset)*VOXEL_SIZE/1000, 'color', cols(iBlock,:));
+
+    [horizontalIntensityMean] = calculateProfile([pointIntensityProfile(valuesToUseEndo, iBlock)' sparseIntensityProfile(valuesToSparseEndo, iBlock)']',...
+        [offSetFullSubscripts(valuesToUseEndo,1)' offSetSparseSubscripts(valuesToSparseEndo,1)']', hoirzBins, xCent);
+
+    subplot(2,2,4); hold on
     plot(horizontalCoords*VOXEL_SIZE/1000, horizontalIntensityMean, 'color', cols(iBlock,:));
 end
 
-subplot(1,2,1); hold on
+subplot(2,2,1); hold on
 xlabel('Average endosperm intensity (AU)')
 ylabel('Distance from base (mm)')
-xlim([0 100]); ylim([0 10])
-title('Vertical profile of endosperm layers')
+xlim([0 100]); ylim([0 12])
+title('Vertical layers under aleurone')
 
-subplot(1,2,2); hold on
+subplot(2,2,2); hold on
 ylabel('Average endosperm intensity (AU)')
 xlabel('Distance from centreline (mm)')
 ylim([0 100]); xlim([-5 5])
-title('Horizontal profile of endosperm layers')
+title('Horizontal layers under aleurone')
+
+subplot(2,2,3); hold on
+xlabel('Average endosperm intensity (AU)')
+ylabel('Distance from base (mm)')
+xlim([0 200]); ylim([0 12])
+title('Vertical layers under exposed endosperm')
+
+subplot(2,2,4); hold on
+ylabel('Average endosperm intensity (AU)')
+xlabel('Distance from centreline (mm)')
+ylim([0 200]); xlim([-5 5])
+title('Horizontal layers under exposed endosperm')
 %% Calculate distance error images
 % Need to distance calculate between points in 2D.
 distanceMatrix2D = zeros(nPoints, nPoints)*NaN;
