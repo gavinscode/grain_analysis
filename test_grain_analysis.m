@@ -73,13 +73,13 @@ stopShortCuts = 0;
 
 maxAleuroneThickness = 75; %In voxels - previous limit at 20
 
-numberOfBlocks = 15;
+numberOfBlocks = 40;
 
 blockThickness = 8/VOXEL_SIZE;
 
 depthToCalculate = blockThickness*numberOfBlocks;
 
-numPlotRows = ceil(numberOfBlocks/5);
+numPlotRows = 2; ceil(numberOfBlocks/5);
 
 winterCoolColours = [(0:numberOfBlocks-1)', fliplr(0:numberOfBlocks-1)' (0:numberOfBlocks-1)']/(numberOfBlocks-1);
 
@@ -3510,6 +3510,7 @@ for iBlock = 1:numberOfBlocks
         ones(length(XPointsIn),1)*(iBlock-1)*blockThickness);
 end
 
+%%
 figure; 
 
 colsID = [[0 0 0]; [1 0 1]; [1 1 0]; [0 1 0]; [0 0 1]];
@@ -3517,12 +3518,15 @@ colsID = [[0 0 0]; [1 0 1]; [1 1 0]; [0 1 0]; [0 0 1]];
 % Resort cols ID
 colsID = colsID([1:2, [ALEURONE_INDEX, ENDOSPERM_INDEX, GERM_INDEX]+2],:);
 
-for iBlock = 1:numberOfBlocks    
-    subplot(numPlotRows,5,iBlock);
+c = 1;
+for iBlock = 1:numberOfBlocks/10:numberOfBlocks   
+    subplot(numPlotRows,5,c); c = c+1;
     
     tempMap = zeros(xRange , yRange, 'uint8');
     
     tempMap(inMap) = IDProfileInterp(:, iBlock)+1;
+    
+    tempMap(1:4) = 1:4;
     
     colormap(colsID)
     
@@ -3558,7 +3562,8 @@ end
 figure;
 
 % Put into arrays and plot
-for iBlock = 1:numberOfBlocks
+c = 1;
+for iBlock = 1:numberOfBlocks/10:numberOfBlocks 
    
     tempImage = zeros(xRange , yRange);
     
@@ -3584,7 +3589,7 @@ for iBlock = 1:numberOfBlocks
     tempImageCol(:,:,2) = tempImageG;
     tempImageCol(:,:,3) = tempImageB;
     
-    subplot(numPlotRows,5,iBlock)
+    subplot(numPlotRows,5,c); c = c + 1;
 
     imshow( permute(tempImageCol, [2 1 3])); hold on;
     
@@ -3619,7 +3624,8 @@ ylabel('Percentage');
 xlabel('Intensity (AU)')
 
 figure;
-for iBlock = 1:numberOfBlocks
+c = 1;
+for iBlock = 1:numberOfBlocks/10:numberOfBlocks 
     valuesToUse = find(~isnan(pointIntensityProfile(:,iBlock)) & ~isnan(thicknessByPoint));
 
     valuesToSparse = find(~isnan(sparseIntensityProfile(:,iBlock)) & ~isnan(thicknessForSparse));
@@ -3628,7 +3634,7 @@ for iBlock = 1:numberOfBlocks
     
     blockIntensity = [pointIntensityProfile(valuesToUse,iBlock)' sparseIntensityProfile(valuesToSparse,iBlock)']';
     
-    subplot(numPlotRows,5,iBlock)
+    subplot(numPlotRows,5,c); c = c + 1;
     plot(alIntensity, blockIntensity, '.');
     
     rValue = corr(alIntensity, blockIntensity);
@@ -3640,17 +3646,13 @@ xlabel('Aleurone intensity (AU)')
 ylabel('Endosperm intensity (AU)')
 
 figure;
-
-for iBlock = 1:numberOfBlocks
-    valuesToUse = find(~isnan(pointIntensityProfile(:,iBlock)) & ~isnan(thicknessByPoint));
-
-    valuesToSparse = find(~isnan(sparseIntensityProfile(:,iBlock)) & ~isnan(thicknessForSparse));
-    
+c = 1;
+for iBlock = 1:numberOfBlocks1:numberOfBlocks/10:numberOfBlocks 
     alThickness = [thicknessByPoint(valuesToUse)' thicknessForSparse(valuesToSparse)']';
     
     blockIntensity = [pointIntensityProfile(valuesToUse,iBlock)' sparseIntensityProfile(valuesToSparse,iBlock)']';
     
-    subplot(numPlotRows,5,iBlock)
+    subplot(numPlotRows,5,c); c = c+1;
     plot(alThickness, blockIntensity, '.');
     
     rValue = corr(alThickness, blockIntensity);
