@@ -7,9 +7,9 @@
 clc; clear; close all
 
 %Set this to break before long loop so initial details can be checked
-stopBefore = 1;
+stopBefore = 0;
 
-% OB_6 - probably good
+% OB_6
 % labelDirectory = 'C:\Grain_temp\OB_6\Labels';
 % greyDirectory = 'C:\Grain_temp\OB_6\Images';
 % dataName = 'OB6';
@@ -17,45 +17,49 @@ stopBefore = 1;
 % ENDOSPERM_INDEX = 2;
 % GERM_INDEX = 3;
 % turnXY = 1;
-% roundOnLoop = 16; % Can be set back to 8?
+% roundOnLoop = 8; % Can be set back to 8?
+% useOldLoop = 0;
 % padLow = [0 0 0];
 % padHigh = [0 0 0];
 
-% OB_7 - Not tested!
+% OB_7
 % labelDirectory = 'C:\Grain_temp\OB_7\Labels';
 % greyDirectory = 'C:\Grain_temp\OB_7\Images';
 % dataName = 'OB7';
 % ALEURONE_INDEX = 1; % Material index.
 % ENDOSPERM_INDEX = 2;
 % GERM_INDEX = 3;
-% turnXY = 1;
-% roundOnLoop = 16; % Can be set back to 8?
-% padLow = [0 0 0];
-% padHigh = [0 0 0];
+% turnXY = -1;
+% roundOnLoop = 8; % Can be set back to 8?
+% useOldLoop = 0;
+% padLow = [0 0 20];
+% padHigh = [0 0 50];
 
 %  Om_1_6 - probably good
-% labelDirectory = 'C:\Grain_temp\Om1_6\Labels';
-% greyDirectory = 'C:\Grain_temp\Om1_6\Images';
-% dataName = 'OM16';
-% ALEURONE_INDEX = 2; % Material index.
-% ENDOSPERM_INDEX = 1;
-% GERM_INDEX = 3;
-% turnXY = -1; %Set to get correct rotation of crease, should face down
-% roundOnLoop = 16;
-% padLow = [20 0 0];
-% padHigh = [0 0 0];
-
-% OM_1_7
-labelDirectory = 'C:\Grain_temp\Om1_7\Labels';
-greyDirectory = 'C:\Grain_temp\Om1_7\Images';
-dataName = 'OM17';
-ALEURONE_INDEX = 1; % Material index.
-ENDOSPERM_INDEX = 2;
+labelDirectory = 'C:\Grain_temp\Om1_6\Labels';
+greyDirectory = 'C:\Grain_temp\Om1_6\Images';
+dataName = 'OM16';
+ALEURONE_INDEX = 2; % Material index.
+ENDOSPERM_INDEX = 1;
 GERM_INDEX = 3;
 turnXY = -1; %Set to get correct rotation of crease, should face down
-roundOnLoop = 8;
-padLow = [50 0 20];
+roundOnLoop = 16;
+useOldLoop = 1; stopShortCuts = 1; % new method only identified shortcut
+padLow = [20 0 0];
 padHigh = [0 0 0];
+
+% OM_1_7
+% labelDirectory = 'C:\Grain_temp\Om1_7\Labels';
+% greyDirectory = 'C:\Grain_temp\Om1_7\Images';
+% dataName = 'OM17';
+% ALEURONE_INDEX = 1; % Material index.
+% ENDOSPERM_INDEX = 2;
+% GERM_INDEX = 3;
+% turnXY = -1; %Set to get correct rotation of crease, should face down
+% roundOnLoop = 8;
+% useOldLoop = 0;
+% padLow = [50 0 20];
+% padHigh = [0 0 0];
 
 % Loading tiff stack takes a while.
 grainVolume = loadtiffstack(labelDirectory, 1);
@@ -94,7 +98,10 @@ sparsePointsDistance = 2; %3
 testPlotNormals = 0;
 
 %OM1_6 has a short cut, OB6 does not, probably best to stop... will add 10 minutes
-stopShortCuts = 0;
+%should not be neccersary any more
+if ~useOldLoop
+    stopShortCuts = 0;
+end
 
 removeLowest = 2;
 
@@ -116,7 +123,7 @@ curveStep = 5;
 % Density of nrb spline interpolation
     % 10 - ~min, 5 - ~15 min
 % Note that original interpolation is every xth slice, 
-% so interp is at curveStepxstep slices
+% so interp is at curveStep x nrbStep slices
 %%% Set to 5 for good runs
 nrbStep = 5;
 
@@ -534,34 +541,44 @@ for iSlice = 1:smallVolumeSize(3)
     end
 end
 
-% Make base plane
-basePlane = grainMask*0;
-
-basePlane(1,:,:) = 1;
-
 % Calculate distance maps 
 tic %distance from grain
 distanceFromGrain = bwdist(grainMask, 'quasi-euclidean');
 toc
 
-tic %distance from base
-distanceFromBase = bwdistgeodesic(loopVolume, sub2ind(smallVolumeSize, ...
-  xBottomOfLoop, yBottomOfLoop, zBottomOfLoop), 'quasi-euclidean');
-toc
-
 % Need to set interior to max to prevent traversal. 
 distanceFromGrain(grainMask) = Inf;
 
-% Graydist takes a long time. Squared to force closer to grain (works?).
-tic
-distanceFromTop = graydist(distanceFromGrain.^2, sub2ind(smallVolumeSize, ...
-    xTopOfLoop, yTopOfLoop, zTopOfLoop), 'quasi-euclidean');
-toc
+if useOldLoop
+    % % Graydist takes a long time. Squared to force closer to grain (works?).
+    tic
+    distanceFromTop = graydist(distanceFromGrain.^2, sub2ind(smallVolumeSize, ...
+        xTopOfLoop, yTopOfLoop, zTopOfLoop), 'quasi-euclidean');
+    toc
 
-tic
-distanceFromBottom = graydist(distanceFromGrain.^2, sub2ind(smallVolumeSize, ...
-    xBottomOfLoop, yBottomOfLoop, zBottomOfLoop),'quasi-euclidean');
-toc
+    tic
+    distanceFromBottom = graydist(distanceFromGrain.^2, sub2ind(smallVolumeSize, ...
+        xBottomOfLoop, yBottomOfLoop, zBottomOfLoop),'quasi-euclidean');
+    toc
+
+else
+    % Try confining distance map to shell around grain...
+    grainMaskShell = logical(imdilate(grainMask, STREL_26_CONNECTED)-grainMask);
+
+    % grainMaskShell(xTopOfLoop, yTopOfLoop, zTopOfLoop)
+    % 
+    % grainMaskShell(xBottomOfLoop, yBottomOfLoop, zBottomOfLoop)
+
+    tic
+    distanceFromTop = bwdistgeodesic(grainMaskShell, sub2ind(smallVolumeSize, ...
+        xTopOfLoop, yTopOfLoop, zTopOfLoop), 'quasi-euclidean');
+    toc
+
+    tic
+    distanceFromBottom = bwdistgeodesic(grainMaskShell, sub2ind(smallVolumeSize, ...
+        xBottomOfLoop, yBottomOfLoop, zBottomOfLoop),'quasi-euclidean');
+    toc
+end
 
 dMap = distanceFromTop + distanceFromBottom;
 
@@ -622,7 +639,7 @@ if ~loopVolume(xTopOfLoop, yTopOfLoop, zTopOfLoop) | ...
     error('Loop did not reach ends, need to insepct')
 end
 
-clear dMapRound, clear distanceFromTop, clear distanceFromBottom
+clear dMapRound, clear distanceFromTop, clear distanceFromBottom, clear grainMaskShell
 %% Can have a short cut if part of loop concave which is not solved in following section
 
 if stopShortCuts
@@ -833,6 +850,7 @@ slicesToUse = [zTopOfLoop:curveStep:(zBottomOfLoop-curveStep+1) zBottomOfLoop];
 
 if slicesToUse(end) ~= zBottomOfLoop
     slicesToUse = [slicesToUse zBottomOfLoop];
+    
 end
 
 for iSlice = slicesToUse
@@ -868,6 +886,8 @@ for iSlice = slicesToUse
 
         tempIndex = 1;
 
+        plotOnWarning = 0;
+        
         for jStep = 1:length(curveLine)-1
             
          [tempX, tempY] = bresenham(curveLine(jStep,1),curveLine(jStep,2),...
@@ -877,13 +897,12 @@ for iSlice = slicesToUse
 
          tempIndex = tempIndex + length(tempX);
          
-         % Check distance is small.
-         if sqrt((curveLine(jStep+1,1)-curveLine(jStep,1))^2 + ...
-                (curveLine(jStep+1,2)-curveLine(jStep,2))^2) > 5
+            % Check distance is small.
+            if sqrt((curveLine(jStep+1,1)-curveLine(jStep,1))^2 + ...
+                    (curveLine(jStep+1,2)-curveLine(jStep,2))^2) > 5
                % Not expecting (really) large steps to occur
                figure; 
                imshow(distanceFromGrain(:,:,iSlice)); hold on
-               plot(curveLine(:,2), curveLine(:,1), 'r.');
                plot(curveLineFull(:,2), curveLineFull(:,1), 'b');
                
                warning('Large distance!'); 
@@ -894,6 +913,10 @@ for iSlice = slicesToUse
 
         curveLineFull = unique(curveLineFull, 'rows');
 
+        if plotOnWarning
+            plot(curveLine(:,2), curveLine(:,1), 'r.');
+        end
+        
         %Voxelize line.
         curveSlice = zeros(smallVolumeSize(1:2));
 
@@ -994,18 +1017,31 @@ toc
 %zToInterp = zBottomOfLoop-zTopOfLoop+1;
 zToInterp = max(max(zArray(:, toInterp)));
 
-%yToInterp = max(loopSubscriptArray(:,2));
 yToInterp = max(max(yArray(:, toInterp)));
 
 % Multiply by two for effective half step, like fast marching.
-p = nrbeval(curveNrb,{linspace(0.0,1.0,yToInterp*2) linspace(0.0,1.0,zToInterp*2)});
+%%% Z *2 sometimes missing intermediate value, scaled up *4
+p = nrbeval(curveNrb,{linspace(0.0,1.0,yToInterp*2) linspace(0.0,1.0,zToInterp*4)});
 curveX = p(1,:,:); curveX = round(curveX(:));
 curveY = p(2,:,:); curveY = round(curveY(:));
-curveZ = p(3,:,:); curveZ = round(curveZ(:));
+curveZ = p(3,:,:); 
+
+%curveZ is sometimes too large, hack, just scale to given limit
+curveZ = curveZ - zTopOfLoop;
+curveZ = curveZ/(max(curveZ(:))/(zToInterp-zTopOfLoop)) + zTopOfLoop;
+curveZ = round(curveZ(:));
 
 [~, indList] = unique([curveX, curveY, curveZ], 'rows');
 
 curveX = curveX(indList); curveY = curveY(indList); curveZ = curveZ(indList);
+
+missingResult = setdiff(zTopOfLoop:zToInterp, curveZ);
+
+if ~isempty(missingResult)
+    missingResult
+    
+    error('Z value above will be missing')
+end
 
 % Find max Y for each Z value
 maxYValues = zeros(smallVolumeSize(3),1);
@@ -1022,11 +1058,12 @@ for iSlice = zTopOfLoop:zToInterp %zBottomOfLoop
        % Not a big problem as each will be filled up until the highest X in following loop.
        
    else
+      % Should be solved above 
       error('No Y value') 
    end
 end
 
-% Fill up to X on each point. Is actually making a blockwe will get surface from
+% Fill up to X on each point. Is actually making a block we will get surface from
 centreCurveVolume = zeros(smallVolumeSize, 'uint8');
 
 for iPoint = 1:length(indList)
@@ -1081,6 +1118,7 @@ nIndex = length(curveIndexList); curveSubscriptArray = zeros(nIndex, 3);
 [curveSubscriptArray(:,1), curveSubscriptArray(:,2), curveSubscriptArray(:,3)] = ...
     ind2sub(smallVolumeSize, curveIndexList);
 
+% figure; axis equal
 % plot3(curveSubscriptArray(:,1), curveSubscriptArray(:,2), ...
 %     curveSubscriptArray(:,3), 'm.');
 %% Extend curve, then place into main volume and re-calcualte exterior
@@ -1315,6 +1353,8 @@ for iRegion = 1:nRegions
     end
 end
 
+title('Top and bottom should be same colour')
+
 if topRegion ~= bottomRegion
     error('Top and bottom in different regions of loop')
 end    
@@ -1341,7 +1381,7 @@ plot3(curveSubscriptArray(mainInVolInds,1), curveSubscriptArray(mainInVolInds,2)
     curveSubscriptArray(mainInVolInds,3), 'mx')
 
 % 1st dimension is Y, 2nd dimension is Z
-nrbplot(curveNrb, [10, 50]);
+%nrbplot(curveNrb, [10, 50]);
 
 % plot3(loopSubscriptArray(:,1), loopSubscriptArray(:,2),...
 %    loopSubscriptArray(:,3), 'go'); 
@@ -1634,7 +1674,7 @@ figure; hold on ; axis equal; set(gca, 'Clipping', 'off')
 plot3(aleuroneSurfaceSubscriptArray(1:100:end,1), aleuroneSurfaceSubscriptArray(1:100:end,2), ...
      aleuroneSurfaceSubscriptArray(1:100:end,3), 'y.')
  
-%plot3(endospermSurfaceSubscriptArray(:,1), endospermSurfaceSubscriptArray(:,2), endospermSurfaceSubscriptArray(:,3), 'g.')
+plot3(endospermSurfaceSubscriptArray(:,1), endospermSurfaceSubscriptArray(:,2), endospermSurfaceSubscriptArray(:,3), 'g.')
 
 plot3(germSurfaceSubscriptArray(:,1), germSurfaceSubscriptArray(:,2), germSurfaceSubscriptArray(:,3), 'b.')
 
