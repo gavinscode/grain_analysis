@@ -155,6 +155,7 @@ transform2Up = matrix2rotatevectors([0, turnXY, 0], grainCreaseAxis*transform2Ve
 % Apply transformation to grain in volume.
 temp = zeros(4,4); temp(4,4) = 1;
 
+% Note - applied distance transforms in opposite direction on cone project
 M1 = make_transformation_matrix(grainCenter - volumeSize/2);
 
 M2 = temp; M2(1:3,1:3) = transform2Vertical;
